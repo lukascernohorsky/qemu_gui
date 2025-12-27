@@ -88,3 +88,48 @@ V kořenovém adresáři repo je přiložený prototyp `qemu_gui.tcl`, který po
 6. Rozložení je inspirováno virt-managerem: horní lišta s akcemi (Nový, Upravit, Smazat, Start, Příkaz, Nastavení), hlavní stromový seznam VM s klíčovými sloupci (architektura, CPU, RAM, akcelerace, display) a spodní panel s textovými detaily a generovaným příkazem pro vybraný VM.
 
 Příkazová řádka QEMU se generuje z konfigurace: zahrnuje `-machine`, `-accel`, `-cpu`, `-smp`, `-m`, `-boot`, `-bios`/firmware, `-vga`, `-display`, `-snapshot`, `-drive` pro každé zařízení, `-cdrom` (pokud je ISO), `-nic` pro každou síť a libovolné dodatečné parametry. 
+
+## Spuštění a práce s Dockerem
+
+Pro snadné vyzkoušení nebo oddělení závislostí lze GUI i QEMU spustit v kontejneru. Základní kroky:
+
+1. **Build image** (příklad pro Debian/Ubuntu base s Tcl/Tk a QEMU):
+
+   ```Dockerfile
+   FROM debian:stable-slim
+   RUN apt-get update && apt-get install -y \
+       tcl tk qemu-system-x86 qemu-utils openssh-client && \
+       apt-get clean && rm -rf /var/lib/apt/lists/*
+   WORKDIR /opt/virt-tk
+   COPY . /opt/virt-tk
+   CMD ["tclsh", "/opt/virt-tk/qemu_gui.tcl"]
+   ```
+
+2. **Spuštění s přístupem k akceleraci a displeji**:
+
+   ```bash
+   docker run --rm -it \
+     --device /dev/kvm \
+     -e DISPLAY=$DISPLAY \
+     -v /tmp/.X11-unix:/tmp/.X11-unix \
+     -v "$HOME/.Xauthority:/root/.Xauthority:ro" \
+     -v "$PWD/vms:/opt/virt-tk/vms" \
+     --name virt-tk-gui \
+     virt-tk-manager:local
+   ```
+
+   - `--device /dev/kvm` je volitelné, pokud chcete KVM; bez něj poběží QEMU bez akcelerace.
+   - Pro Wayland/pipewire kompozitory použijte ekvivalentní přístup (např. `XDG_RUNTIME_DIR` a `wayland-0`).
+   - Mapování `vms` adresáře zachová konfigurace a obrazy mezi běhy kontejneru.
+
+3. **Síť a rozhraní**:
+   - Pro bridged nebo TAP režimy je třeba předat příslušná rozhraní (`--network host` nebo `--cap-add NET_ADMIN` + `--device /dev/net/tun`).
+   - U přesměrování portů z `-nic user,hostfwd` obvykle vystačí implicitní NAT Dockeru; pro VNC/SPICE se často hodí `--network host`.
+
+4. **Bezpečnostní poznámky**:
+   - Přístup k `/dev/kvm` a síťovým schopnostem zvyšuje privilegia kontejneru; používejte jen na důvěryhodných hostech.
+   - Pokud potřebujete přístup k lokálnímu úložišti ISO/disků, přidejte odpovídající `-v` bind mounty.
+
+5. **Debug a logy**:
+   - Výstup `tclsh qemu_gui.tcl` jde do stdout/stderr kontejneru; pro per-VM logy zachovejte perzistentní bind mount do `vms/`.
+   - Pro nenativní GUI (headless host) lze místo X11 použít VNC/SPICE z QEMU nebo předat Xvfb/XPRA podle potřeby.
