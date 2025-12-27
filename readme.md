@@ -73,3 +73,17 @@ Tento dokument shrnuje klíčové spouštěcí parametry QEMU pro architektury x
 - Vstupní validace (neprázdné jméno, velikost disku > 0, existující cesty), uživatelsky srozumitelná hlášení.
 - Logování a možnost zapnout verbose mód (zobrazit příkaz + výstup QEMU/qemu-img).
 - Distribuce: Tcl/Tk skript s volitelným starpackem pro Windows; na Unix/BSD očekává QEMU v PATH nebo ručně zadanou cestu.
+
+## Spuštění referenční GUI aplikace
+
+V kořenovém adresáři repo je přiložený prototyp `qemu_gui.tcl`, který pokrývá základ návrhu:
+
+1. Spusťte Tcl/Tk (vyžaduje `tclsh` 8.6+ s Tk): `tclsh qemu_gui.tcl`.
+2. Hlavní okno zobrazuje seznam VM definovaných v adresáři `./vms` (vytváří se automaticky, konfigurace se ukládají jako `*.tcl`).
+3. Tlačítko **Nový** / **Upravit** otevře formulář s poli pro název, architekturu, machine typ, RAM/CPU, akceleraci, firmware, boot order, ISO, grafiku, snapshot režim, dodatečné parametry a seznamy disků a sítí:
+   - Disky: tlačítko **Přidat** otevře dialog s volbou cesty, formátu, rozhraní (ide/virtio/scsi…), média (disk/cdrom), boot flag a readonly. Více zařízení je možné přidávat/mazat.
+   - Síť: dialog umožňuje nastavit režim (user/bridge/tap/none), model karty, hostfwd, bridge/tap jméno a MAC adresu.
+4. Uložené VM lze **Smazat**, zobrazit **Vygenerovaný příkaz** nebo spustit tlačítkem **Start** (zobrazí se potvrzení a poté se pokusí spustit QEMU).
+5. **Nastavení QEMU cest** umožní přepsat binárky `qemu-system-*` pro jednotlivé architektury (např. na Windows nebo BSD instalacích).
+
+Příkazová řádka QEMU se generuje z konfigurace: zahrnuje `-machine`, `-accel`, `-cpu`, `-smp`, `-m`, `-boot`, `-bios`/firmware, `-vga`, `-display`, `-snapshot`, `-drive` pro každé zařízení, `-cdrom` (pokud je ISO), `-nic` pro každou síť a libovolné dodatečné parametry. 
