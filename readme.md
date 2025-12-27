@@ -85,5 +85,6 @@ V kořenovém adresáři repo je přiložený prototyp `qemu_gui.tcl`, který po
    - Síť: dialog umožňuje nastavit režim (user/bridge/tap/none), model karty, hostfwd, bridge/tap jméno a MAC adresu.
 4. Uložené VM lze **Smazat**, zobrazit **Vygenerovaný příkaz** nebo spustit tlačítkem **Start** (zobrazí se potvrzení a poté se pokusí spustit QEMU).
 5. **Nastavení QEMU cest** umožní přepsat binárky `qemu-system-*` pro jednotlivé architektury (např. na Windows nebo BSD instalacích).
+6. Rozložení je inspirováno virt-managerem: horní lišta s akcemi (Nový, Upravit, Smazat, Start, Příkaz, Nastavení), hlavní stromový seznam VM s klíčovými sloupci (architektura, CPU, RAM, akcelerace, display) a spodní panel s textovými detaily a generovaným příkazem pro vybraný VM.
 
 Příkazová řádka QEMU se generuje z konfigurace: zahrnuje `-machine`, `-accel`, `-cpu`, `-smp`, `-m`, `-boot`, `-bios`/firmware, `-vga`, `-display`, `-snapshot`, `-drive` pro každé zařízení, `-cdrom` (pokud je ISO), `-nic` pro každou síť a libovolné dodatečné parametry. 

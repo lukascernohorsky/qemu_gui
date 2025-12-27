@@ -81,7 +81,7 @@ proc ::qemu::renderVmSummary {cfg} {
     set machine [dict get $cfg machine]
     set accel [dict get $cfg accel]
     set display [dict get $cfg display]
-    return "$name — $arch, ${cpus}CPU, ${mem}MB, machine $machine, accel $accel, display $display"
+    return "$name — $arch, ${cpus} CPU, ${mem} MB, machine $machine, accel $accel, display $display"
 }
 
 proc ::qemu::getDefaultConfig {} {
@@ -216,78 +216,110 @@ proc ::qemu::openVmForm {mode {id ""} {cfg ""}} {
 
     set win [toplevel .vmform]
     wm title $win [expr {$mode eq "edit" ? "Upravit VM" : "Nový VM"}]
+    grid columnconfigure $win 0 -weight 1
 
+    set nb [ttk::notebook $win.nb]
+    grid $nb -row 0 -column 0 -sticky news -padx 6 -pady 6
+
+    # Základní karta
+    set general [ttk::frame $nb.general]
+    set growCols {1}
     set row 0
-    foreach {label key default} {
-        "Název" name {}
-        "Architektura" arch {}
-        "Machine" machine {}
-        "RAM (MB)" memory {}
-        "CPU (počet)" cpus {}
-        "Model CPU" cpu_model {}
-        "Akcelerace" accel {}
-        "Firmware/BIOS" firmware {}
-        "Boot order" boot_order {}
-        "ISO (CD/DVD)" iso {}
-        "VGA" vga {}
-        "Display" display {}
+    foreach {label key} {
+        "Název" name
+        "Architektura" arch
+        "Machine" machine
+        "RAM (MB)" memory
+        "CPU (počet)" cpus
+        "Model CPU" cpu_model
+        "Akcelerace" accel
+        "Firmware/BIOS" firmware
+        "Boot order" boot_order
+        "ISO (CD/DVD)" iso
     } {
-        ttk::label $win.l$row -text $label
-        ttk::entry $win.e$row -textvariable ${varName}($key)
-        grid $win.l$row -row $row -column 0 -sticky w -padx 4 -pady 2
-        grid $win.e$row -row $row -column 1 -sticky we -padx 4 -pady 2
+        ttk::label $general.l$row -text $label
+        ttk::entry $general.e$row -textvariable ${varName}($key)
+        grid $general.l$row -row $row -column 0 -sticky w -padx 4 -pady 2
+        grid $general.e$row -row $row -column 1 -sticky we -padx 4 -pady 2
         incr row
     }
-
-    ttk::checkbutton $win.snapshot -text "Spustit v režimu snapshot (-snapshot)" \
+    ttk::checkbutton $general.snapshot -text "Spustit v režimu snapshot (-snapshot)" \
         -variable ${varName}(snapshot_mode)
-    grid $win.snapshot -row $row -column 0 -columnspan 2 -sticky w -padx 4 -pady 2
-    incr row
+    grid $general.snapshot -row $row -column 0 -columnspan 2 -sticky w -padx 4 -pady 2
+    grid columnconfigure $general 1 -weight 1
 
-    ttk::label $win.extraL -text "Dodatečné parametry (oddělené mezerou)"
-    ttk::entry $win.extraE -textvariable ${varName}(extra_args)
-    grid $win.extraL -row $row -column 0 -sticky w -padx 4 -pady 2
-    grid $win.extraE -row $row -column 1 -sticky we -padx 4 -pady 2
-    incr row
+    # Úložiště
+    set storage [ttk::frame $nb.storage]
+    ttk::label $storage.lbl -text "Disky a optická média"
+    listbox $storage.list -height 6 -exportselection 0
+    ttk::frame $storage.btns
+    ttk::button $storage.btns.add -text "Přidat" -command [list ::qemu::addDiskDialog $storage $varName]
+    ttk::button $storage.btns.del -text "Odebrat" -command [list ::qemu::removeSelectedDisk $storage $varName]
+    pack $storage.btns.add $storage.btns.del -side top -padx 3 -pady 2
+    grid $storage.lbl -row 0 -column 0 -sticky w -padx 4 -pady 2
+    grid $storage.list -row 1 -column 0 -sticky news -padx 4 -pady 2
+    grid $storage.btns -row 1 -column 1 -sticky ns -padx 4 -pady 2
+    grid rowconfigure $storage 1 -weight 1
+    grid columnconfigure $storage 0 -weight 1
 
-    # Disks
-    ttk::label $win.diskL -text "Disky / CD"
-    listbox $win.disks -height 5
-    ttk::frame $win.diskBtns
-    ttk::button $win.diskBtns.add -text "Přidat" -command [list ::qemu::addDiskDialog $win $varName]
-    ttk::button $win.diskBtns.del -text "Odebrat" -command [list ::qemu::removeSelectedDisk $win $varName]
-    pack $win.diskBtns.add $win.diskBtns.del -side left -padx 2
-    grid $win.diskL -row $row -column 0 -sticky nw -padx 4 -pady 2
-    grid $win.disks -row $row -column 1 -sticky we -padx 4 -pady 2
-    grid $win.diskBtns -row $row -column 2 -sticky w
-    incr row
+    # Síť
+    set network [ttk::frame $nb.network]
+    ttk::label $network.lbl -text "Síťová rozhraní"
+    listbox $network.list -height 5 -exportselection 0
+    ttk::frame $network.btns
+    ttk::button $network.btns.add -text "Přidat" -command [list ::qemu::addNetDialog $network $varName]
+    ttk::button $network.btns.del -text "Odebrat" -command [list ::qemu::removeSelectedNet $network $varName]
+    pack $network.btns.add $network.btns.del -side top -padx 3 -pady 2
+    grid $network.lbl -row 0 -column 0 -sticky w -padx 4 -pady 2
+    grid $network.list -row 1 -column 0 -sticky news -padx 4 -pady 2
+    grid $network.btns -row 1 -column 1 -sticky ns -padx 4 -pady 2
+    grid rowconfigure $network 1 -weight 1
+    grid columnconfigure $network 0 -weight 1
 
-    # Network
-    ttk::label $win.netL -text "Síťová rozhraní"
-    listbox $win.nets -height 4
-    ttk::frame $win.netBtns
-    ttk::button $win.netBtns.add -text "Přidat" -command [list ::qemu::addNetDialog $win $varName]
-    ttk::button $win.netBtns.del -text "Odebrat" -command [list ::qemu::removeSelectedNet $win $varName]
-    pack $win.netBtns.add $win.netBtns.del -side left -padx 2
-    grid $win.netL -row $row -column 0 -sticky nw -padx 4 -pady 2
-    grid $win.nets -row $row -column 1 -sticky we -padx 4 -pady 2
-    grid $win.netBtns -row $row -column 2 -sticky w
-    incr row
+    # Zobrazení
+    set display [ttk::frame $nb.display]
+    set row 0
+    foreach {label key} {
+        "VGA" vga
+        "Display backend" display
+    } {
+        ttk::label $display.l$row -text $label
+        ttk::entry $display.e$row -textvariable ${varName}($key)
+        grid $display.l$row -row $row -column 0 -sticky w -padx 4 -pady 2
+        grid $display.e$row -row $row -column 1 -sticky we -padx 4 -pady 2
+        incr row
+    }
+    grid columnconfigure $display 1 -weight 1
+
+    # Pokročilé
+    set advanced [ttk::frame $nb.adv]
+    ttk::label $advanced.extraL -text "Dodatečné parametry (oddělené mezerou)"
+    ttk::entry $advanced.extraE -textvariable ${varName}(extra_args)
+    grid $advanced.extraL -row 0 -column 0 -sticky w -padx 4 -pady 2
+    grid $advanced.extraE -row 1 -column 0 -sticky we -padx 4 -pady 2
+    grid columnconfigure $advanced 0 -weight 1
+
+    $nb add $general -text "Obecné"
+    $nb add $storage -text "Úložiště"
+    $nb add $network -text "Síť"
+    $nb add $display -text "Zobrazení"
+    $nb add $advanced -text "Pokročilé"
 
     ttk::frame $win.actions
     ttk::button $win.actions.ok -text "Uložit" -command [list ::qemu::saveVmFromForm $win $mode $id $varName]
     ttk::button $win.actions.cancel -text "Zavřít" -command [list destroy $win]
     pack $win.actions.ok $win.actions.cancel -side left -padx 4 -pady 4
-    grid $win.actions -row $row -column 0 -columnspan 3
+    grid $win.actions -row 1 -column 0 -sticky e -padx 8 -pady 6
 
     # Populate entries with cfg dict via array
     array set $varName $cfg
     if {![info exists ${varName}(disks)]} { set ${varName}(disks) {} }
     if {![info exists ${varName}(net)]} { set ${varName}(net) {} }
-    ::qemu::refreshDiskList $win $varName
-    ::qemu::refreshNetList $win $varName
+    ::qemu::refreshDiskList $storage $varName
+    ::qemu::refreshNetList $network $varName
 
-    grid columnconfigure $win 1 -weight 1
+    grid rowconfigure $win 0 -weight 1
+    grid columnconfigure $win 0 -weight 1
 }
 
 proc ::qemu::addDiskDialog {parent cfgVar} {
@@ -476,20 +508,26 @@ proc ::qemu::deleteVm {id} {
 
 proc ::qemu::refreshVmList {} {
     variable vmList
-    .main.list delete 0 end
+    .main.list delete [.main.list children {}]
     foreach vm $vmList {
         lassign $vm id cfg
         set summary [renderVmSummary $cfg]
-        .main.list insert end "$id — $summary"
+        .main.list insert "" end -id $id -values [list [dict get $cfg name] [dict get $cfg arch] [dict get $cfg cpus] [dict get $cfg memory] [dict get $cfg accel] [dict get $cfg display]]
     }
+    ::qemu::renderDetails ""
 }
 
 proc ::qemu::selectVm {} {
     variable vmList
     variable selectedVm
-    set idx [.main.list curselection]
-    if {$idx eq ""} { set selectedVm ""; return }
-    set selectedVm [lindex [lindex $vmList $idx] 0]
+    set sel [.main.list selection]
+    if {$sel eq ""} {
+        set selectedVm ""
+        ::qemu::renderDetails ""
+        return
+    }
+    set selectedVm [lindex $sel 0]
+    ::qemu::renderDetails $selectedVm
 }
 
 proc ::qemu::getVmById {id} {
@@ -500,6 +538,55 @@ proc ::qemu::getVmById {id} {
         }
     }
     return ""
+}
+
+proc ::qemu::renderDetails {id} {
+    if {![winfo exists .main.detail.text]} { return }
+    set txt .main.detail.text
+    $txt configure -state normal
+    $txt delete 1.0 end
+    if {$id eq ""} {
+        $txt insert end "Vyberte VM pro zobrazení detailů."
+        $txt configure -state disabled
+        return
+    }
+    set cfg [::qemu::getVmById $id]
+    if {$cfg eq ""} {
+        $txt insert end "Konfigurace nenalezena."
+        $txt configure -state disabled
+        return
+    }
+    $txt insert end "[dict get $cfg name]\n"
+    $txt insert end "Arch: [dict get $cfg arch]\n"
+    $txt insert end "Machine: [dict get $cfg machine]\n"
+    $txt insert end "CPU: [dict get $cfg cpus], Model: [dict get $cfg cpu_model], Accel: [dict get $cfg accel]\n"
+    $txt insert end "RAM: [dict get $cfg memory] MB\n"
+    $txt insert end "Boot order: [dict get $cfg boot_order]\n"
+    if {[dict get $cfg firmware] ne ""} {
+        $txt insert end "Firmware: [dict get $cfg firmware]\n"
+    }
+    if {[dict get $cfg iso] ne ""} {
+        $txt insert end "ISO: [dict get $cfg iso]\n"
+    }
+    if {[dict get $cfg disks] ne {}} {
+        $txt insert end "Disky:\n"
+        foreach d [dict get $cfg disks] {
+            dict with d {
+                $txt insert end "  - $media $file ($format, $if) boot:$boot ro:$readonly\n"
+            }
+        }
+    }
+    if {[dict get $cfg net] ne {}} {
+        $txt insert end "Síť:\n"
+        foreach n [dict get $cfg net] {
+            dict with n {
+                $txt insert end "  - $type $model hostfwd:$hostfwd br:$br tap:$tap mac:$mac\n"
+            }
+        }
+    }
+    set cmd [join [buildCommand $cfg] " "]
+    $txt insert end "\nPříkaz:\n$cmd\n"
+    $txt configure -state disabled
 }
 
 proc ::qemu::openSettingsDialog {} {
@@ -522,47 +609,73 @@ proc ::qemu::openSettingsDialog {} {
 proc ::qemu::mainUi {} {
     ensureStorage
     loadAll
-    ttk::frame .main
+    ttk::frame .main -padding 6
     pack .main -fill both -expand 1
-    ttk::label .main.title -text "QEMU GUI (Tcl/Tk)" -font "TkDefaultFont 12 bold"
-    listbox .main.list -height 10 -exportselection 0
-    bind .main.list <<ListboxSelect>> ::qemu::selectVm
-    ttk::frame .main.buttons
-    ttk::button .main.buttons.new -text "Nový" -command [list ::qemu::openVmForm new]
-    ttk::button .main.buttons.edit -text "Upravit" -command {
-        set idx [.main.list curselection]
-        if {$idx eq ""} { return }
-        set vm [lindex $::qemu::vmList $idx]
-        ::qemu::openVmForm edit [lindex $vm 0] [lindex $vm 1]
+    ttk::label .main.title -text "QEMU Správce VM" -font "TkDefaultFont 12 bold"
+    pack .main.title -anchor w -pady 4
+
+    ttk::frame .main.toolbar
+    ttk::button .main.toolbar.new -text "Nový" -command [list ::qemu::openVmForm new]
+    ttk::button .main.toolbar.edit -text "Upravit" -command {
+        set sel [.main.list selection]
+        if {$sel eq ""} { return }
+        set vm [::qemu::getVmById [lindex $sel 0]]
+        ::qemu::openVmForm edit [lindex $sel 0] $vm
     }
-    ttk::button .main.buttons.del -text "Smazat" -command {
-        set idx [.main.list curselection]
-        if {$idx eq ""} { return }
-        set vm [lindex $::qemu::vmList $idx]
+    ttk::button .main.toolbar.del -text "Smazat" -command {
+        set sel [.main.list selection]
+        if {$sel eq ""} { return }
+        set vm [::qemu::getVmById [lindex $sel 0]]
         if {[tk_messageBox -type yesno -icon question -title "Smazat VM" \
-            -message "Opravdu smazat VM [dict get [lindex $vm 1] name]?"] eq "yes"} {
-            ::qemu::deleteVm [lindex $vm 0]
+            -message "Opravdu smazat VM [dict get $vm name]?"] eq "yes"} {
+            ::qemu::deleteVm [lindex $sel 0]
         }
     }
-    ttk::button .main.buttons.cmd -text "Zobrazit příkaz" -command {
-        set idx [.main.list curselection]
-        if {$idx eq ""} { return }
-        set vm [lindex $::qemu::vmList $idx]
-        ::qemu::showCommand [lindex $vm 1]
+    ttk::button .main.toolbar.start -text "Start" -command {
+        set sel [.main.list selection]
+        if {$sel eq ""} { return }
+        set vm [::qemu::getVmById [lindex $sel 0]]
+        ::qemu::startVm $vm
     }
-    ttk::button .main.buttons.start -text "Start" -command {
-        set idx [.main.list curselection]
-        if {$idx eq ""} { return }
-        set vm [lindex $::qemu::vmList $idx]
-        ::qemu::startVm [lindex $vm 1]
+    ttk::button .main.toolbar.cmd -text "Příkaz" -command {
+        set sel [.main.list selection]
+        if {$sel eq ""} { return }
+        set vm [::qemu::getVmById [lindex $sel 0]]
+        ::qemu::showCommand $vm
     }
-    ttk::button .main.buttons.settings -text "Nastavení QEMU cest" -command ::qemu::openSettingsDialog
-    pack .main.buttons.new .main.buttons.edit .main.buttons.del \
-        .main.buttons.cmd .main.buttons.start .main.buttons.settings \
-        -side left -padx 3 -pady 4
-    pack .main.title -anchor w -padx 6 -pady 4
-    pack .main.list -fill both -expand 1 -padx 6
-    pack .main.buttons -anchor w -padx 6 -pady 6
+    ttk::button .main.toolbar.settings -text "Nastavení QEMU cest" -command ::qemu::openSettingsDialog
+    pack .main.toolbar.new .main.toolbar.edit .main.toolbar.del \
+        .main.toolbar.start .main.toolbar.cmd .main.toolbar.settings \
+        -side left -padx 3
+    pack .main.toolbar -fill x -pady 4
+
+    ttk::panedwindow .main.pw -orient vertical
+    pack .main.pw -fill both -expand 1
+
+    ttk::frame .main.listFrame
+    set tree [ttk::treeview .main.list -columns {name arch cpu ram accel display} -show headings -selectmode browse]
+    .main.list heading name -text "Název"
+    .main.list heading arch -text "Arch"
+    .main.list heading cpu -text "CPU"
+    .main.list heading ram -text "RAM (MB)"
+    .main.list heading accel -text "Accel"
+    .main.list heading display -text "Display"
+    .main.list column name -width 180
+    .main.list column arch -width 70
+    .main.list column cpu -width 60
+    .main.list column ram -width 90
+    .main.list column accel -width 90
+    .main.list column display -width 90
+    bind .main.list <<TreeviewSelect>> ::qemu::selectVm
+    pack .main.list -fill both -expand 1
+    .main.pw add .main.list -weight 3
+
+    ttk::frame .main.detail
+    ttk::label .main.detail.label -text "Detaily VM"
+    text .main.detail.text -height 8 -wrap word -state disabled
+    pack .main.detail.label -anchor w
+    pack .main.detail.text -fill both -expand 1
+    .main.pw add .main.detail -weight 2
 
     refreshVmList
 }
