@@ -7,10 +7,21 @@ namespace eval ::virt::commands {
         variable registry
         set registry {}
         # Mock command registry; real drivers will extend this table.
-        dict set registry mock.start [dict create command-id mock.start timeout 120000 privilege none builder {argv {echo "starting"}}]
-        dict set registry mock.stop  [dict create command-id mock.stop timeout 120000 privilege none builder {argv {echo "stopping"}}]
-        dict set registry mock.force [dict create command-id mock.force timeout 30000 privilege none builder {argv {echo "force kill"}}]
-        dict set registry mock.delete [dict create command-id mock.delete timeout 30000 privilege none builder {argv {echo "delete"}}]
+        foreach {cid argv timeout supports_dry_run} {
+            mock.start  {echo "starting"} 120000 1
+            mock.stop   {echo "stopping"} 120000 1
+            mock.force  {echo "force kill"} 30000 1
+            mock.delete {echo "delete"} 30000 1
+            mock.console {echo "console open"} 10000 0
+        } {
+            dict set registry $cid [dict create \
+                command-id $cid \
+                timeout $timeout \
+                privilege none \
+                supports_dry_run $supports_dry_run \
+                builder [dict create argv $argv] \
+            ]
+        }
     }
 
     proc resolve {commandId args} {

@@ -83,7 +83,7 @@ proc ::virt::ui::build {} {
 
     ttk::frame .container.toolbar
     foreach {key label} {
-        new "New" start "Start" stop "Stop" force "Force" delete "Delete" console "Open Console" ssh "Open SSH Terminal" refresh "Refresh" prefs "Preferences"
+        new "New" start "Start" stop "Stop" force "Force" delete "Delete" console "Open Console" ssh "Open SSH Terminal" refresh "Refresh" prefs "Preferences" savelogs "Save Logs"
     } {
         ttk::button .container.toolbar.$key -text $label -command [list ::virt::ui::handleAction $key]
         pack .container.toolbar.$key -side left -padx 2 -pady 2
@@ -169,8 +169,10 @@ proc ::virt::ui::handleAction {action} {
     if {$action eq "stop"} { ::virt::ui::runGuestAction mock.stop }
     if {$action eq "force"} { ::virt::ui::runGuestAction mock.force }
     if {$action eq "delete"} { ::virt::ui::runGuestAction mock.delete }
+    if {$action eq "console"} { ::virt::ui::runConsole }
     if {$action eq "prefs"} { ::virt::ui::openPrefs }
     if {$action eq "ssh"} { ::virt::ui::openSshTemplate }
+    if {$action eq "savelogs"} { ::virt::ui::saveLogs }
 }
 
 proc ::virt::ui::guestActions {guestId} {
@@ -205,6 +207,22 @@ proc ::virt::ui::runGuestAction {commandId} {
     }
 }
 
+proc ::virt::ui::runConsole {} {
+    set sel [.container.tree selection]
+    if {$sel eq ""} { return }
+    set guestId [lindex $sel 0]
+    set connNode [.container.tree parent $guestId]
+    foreach c $::virt::state::connections {
+        if {[dict get $c id] eq $connNode} {
+            set drv [dict get $c driver]
+            set info [$drv console_info $guestId]
+            set msg "Console type: [dict get $info type]\nHost: [dict get $info host]\nPort: [dict get $info port]\nViewer hint: [dict get $info viewer_hint]\nCommand: [join [dict get $info command] \" \"]\nURI: [dict get $info copyable_uri]"
+            tk_messageBox -icon info -type ok -title "Console" -message $msg
+            return
+        }
+    }
+}
+
 proc ::virt::ui::appendLog {result} {
     set txt .container.detail.nb.logs.text
     $txt configure -state normal
@@ -214,6 +232,9 @@ proc ::virt::ui::appendLog {result} {
     }
     if {[dict exists $result error]} {
         $txt insert end "error: [dict get $result error]\n"
+    }
+    if {[dict exists $result privilege]} {
+        $txt insert end "privilege: [dict get $result privilege]\n"
     }
     $txt insert end "\n"
     $txt see end
@@ -245,6 +266,17 @@ proc ::virt::ui::openSshTemplate {} {
     variable ::virt::state::preferences
     set template [dict get $::virt::state::preferences terminal_template]
     tk_messageBox -icon info -type ok -title "SSH Command Template" -message "Template: $template\n\nSSH execution is planned; this is a placeholder."
+}
+
+proc ::virt::ui::saveLogs {} {
+    set path [tk_getSaveFile -title "Save Logs" -defaultextension ".log"]
+    if {$path eq ""} { return }
+    set txt .container.detail.nb.logs.text
+    set content [$txt get 1.0 end]
+    set fh [open $path w]
+    puts $fh $content
+    close $fh
+    tk_messageBox -icon info -type ok -title "Logs saved" -message "Logs saved to $path"
 }
 
 ::virt::commands::init
