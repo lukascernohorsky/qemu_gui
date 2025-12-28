@@ -1,0 +1,10 @@
+{
+  "name": "mock-driver",
+  "version": "1.0",
+  "capabilities": ["compute", "storage", "network"],
+  "constraints": {
+    "compute": {"maxMemory": 8192, "maxCPUs": 8},
+    "storage": {"maxDisks": 4, "maxSnapshots": 8},
+    "network": {"maxNICs": 4}
+  }
+}
