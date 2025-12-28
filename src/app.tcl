@@ -123,7 +123,7 @@ proc ::virt::ui::build {} {
     pack .container.status -fill x -pady 4
 
     ::virt::ui::populateTree
-    ::virt::ui::updateToolbarState
+    ::virt::ui::setStatus "Ready (v$::virt::appVersion)"
 }
 
 proc ::virt::ui::populateTree {} {
@@ -175,6 +175,7 @@ proc ::virt::ui::renderDetails {} {
             $txt insert end [$tree item $id -text]
         }
         ::virt::ui::updateToolbarState
+        ::virt::ui::setStatus "Selected: [$tree item $id -text]"
     }
     $txt configure -state disabled
 }
@@ -214,6 +215,9 @@ proc ::virt::ui::selectInitialNode {} {
     } else {
         set roots [$tree children {}]
         if {$roots ne ""} { $tree selection set [lindex $roots 0] }
+    }
+    if {$tree ne "" && [$tree selection] ne ""} {
+        ::virt::ui::setStatus "Selected: [$tree item [lindex [$tree selection] 0] -text]"
     }
 }
 
