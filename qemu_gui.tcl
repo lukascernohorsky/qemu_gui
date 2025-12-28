@@ -16,6 +16,19 @@ namespace eval ::qemu {
     variable storageDir [file normalize [file join [pwd] "vms"]]
     variable vmList {}
     variable selectedVm ""
+    variable viewerLogs {}
+    variable lastJobSummary [dict create \
+        status "none" \
+        vm "" \
+        timestamp [clock format [clock seconds] -iso 8601] \
+        details "Zatím neproběhl žádný job." \
+    ]
+    variable mockManifest [dict create \
+        name "mock-backend" \
+        version "1.0" \
+        endpoints {/vms /jobs /artifacts} \
+        note "Manifest generovaný pro testovací backend." \
+    ]
     variable qemuPathOverrides {
         x86_64 ""
         i386 ""
@@ -187,14 +200,39 @@ proc ::qemu::buildCommand {cfg} {
 }
 
 proc ::qemu::startVm {cfg} {
+    variable lastJobSummary
     set cmd [buildCommand $cfg]
     set commandStr [join $cmd " "]
     set res [tk_messageBox -type yesno -icon question -title "Spustit VM" \
         -message "Spustit následující příkaz?\n$commandStr"]
-    if {$res ne "yes"} { return }
+    if {$res ne "yes"} {
+        set lastJobSummary [dict create \
+            status "cancelled" \
+            vm [dict get $cfg name] \
+            timestamp [clock format [clock seconds] -iso 8601] \
+            details "Spuštění bylo zrušeno uživatelem." \
+        ]
+        ::qemu::appendViewerLog "Start VM [dict get $cfg name] zrušen."
+        return
+    }
     if {[catch {eval exec {*}$cmd &} err]} {
+        set lastJobSummary [dict create \
+            status "error" \
+            vm [dict get $cfg name] \
+            timestamp [clock format [clock seconds] -iso 8601] \
+            details $err \
+        ]
+        ::qemu::appendViewerLog "Start VM [dict get $cfg name] selhal: $err"
         tk_messageBox -icon error -type ok -title "Spuštění selhalo" \
             -message "Příkaz se nepodařilo spustit:\n$err"
+    } else {
+        set lastJobSummary [dict create \
+            status "started" \
+            vm [dict get $cfg name] \
+            timestamp [clock format [clock seconds] -iso 8601] \
+            details "Příkaz spuštěn: $commandStr" \
+        ]
+        ::qemu::appendViewerLog "Start VM [dict get $cfg name]: $commandStr"
     }
 }
 
@@ -643,9 +681,10 @@ proc ::qemu::mainUi {} {
         set vm [::qemu::getVmById [lindex $sel 0]]
         ::qemu::showCommand $vm
     }
+    ttk::button .main.toolbar.export -text "Exportovat diagnostiku" -command ::qemu::openExportDialog
     ttk::button .main.toolbar.settings -text "Nastavení QEMU cest" -command ::qemu::openSettingsDialog
     pack .main.toolbar.new .main.toolbar.edit .main.toolbar.del \
-        .main.toolbar.start .main.toolbar.cmd .main.toolbar.settings \
+        .main.toolbar.start .main.toolbar.cmd .main.toolbar.export .main.toolbar.settings \
         -side left -padx 3
     pack .main.toolbar -fill x -pady 4
 
@@ -678,6 +717,242 @@ proc ::qemu::mainUi {} {
     .main.pw add .main.detail -weight 2
 
     refreshVmList
+}
+
+proc ::qemu::appendViewerLog {message} {
+    variable viewerLogs
+    set timestamped "[clock format [clock seconds] -iso 8601] — $message"
+    lappend viewerLogs $timestamped
+    if {[llength $viewerLogs] > 200} {
+        set viewerLogs [lrange $viewerLogs end-199 end]
+    }
+}
+
+proc ::qemu::buildConstraintsOverview {} {
+    variable vmList
+    set maxMem 0
+    set maxCpu 0
+    set snapshotCount 0
+    foreach vm $vmList {
+        lassign $vm _ cfg
+        set mem [dict get $cfg memory]
+        set cpu [dict get $cfg cpus]
+        if {$mem > $maxMem} { set maxMem $mem }
+        if {$cpu > $maxCpu} { set maxCpu $cpu }
+        if {[dict get $cfg snapshot_mode]} { incr snapshotCount }
+    }
+    return [dict create \
+        total_vms [llength $vmList] \
+        max_memory_mb $maxMem \
+        max_cpus $maxCpu \
+        snapshot_mode_enabled $snapshotCount \
+    ]
+}
+
+proc ::qemu::collectDiagnosticsData {includeViewerLogs includeManifest} {
+    variable vmList
+    variable mockManifest
+    variable lastJobSummary
+
+    set vmsData {}
+    foreach vm $vmList {
+        lassign $vm id cfg
+        set sanitizedCfg [dict create \
+            name [dict get $cfg name] \
+            arch [dict get $cfg arch] \
+            machine [dict get $cfg machine] \
+            memory [dict get $cfg memory] \
+            cpus [dict get $cfg cpus] \
+            cpu_model [dict get $cfg cpu_model] \
+            accel [dict get $cfg accel] \
+            boot_order [dict get $cfg boot_order] \
+            iso [dict get $cfg iso] \
+            vga [dict get $cfg vga] \
+            display [dict get $cfg display] \
+            snapshot_mode [dict get $cfg snapshot_mode] \
+            extra_args [dict get $cfg extra_args] \
+        ]
+        if {[dict get $cfg firmware] ne ""} {
+            dict set sanitizedCfg firmware "<redigováno>"
+        } else {
+            dict set sanitizedCfg firmware ""
+        }
+        set disks {}
+        foreach disk [dict get $cfg disks] {
+            dict with disk {
+                set diskDict [dict create \
+                    file $file \
+                    format $format \
+                    if $if \
+                    media $media \
+                    boot $boot \
+                    readonly $readonly \
+                ]
+                lappend disks $diskDict
+            }
+        }
+        set nets {}
+        foreach net [dict get $cfg net] {
+            dict with net {
+                set netDict [dict create \
+                    type $type \
+                    model $model \
+                    hostfwd [expr {$hostfwd ne "" ? "<redigováno>" : ""}] \
+                    br $br \
+                    tap $tap \
+                    mac [expr {$mac ne "" ? "<redigováno>" : ""}] \
+                ]
+                lappend nets $netDict
+            }
+        }
+        dict set sanitizedCfg disks $disks
+        dict set sanitizedCfg net $nets
+        lappend vmsData [dict create id $id config $sanitizedCfg]
+    }
+
+    set bundle [dict create \
+        timestamp [clock format [clock seconds] -iso 8601] \
+        constraints [::qemu::buildConstraintsOverview] \
+        last_job $lastJobSummary \
+        vms $vmsData \
+    ]
+    if {$includeViewerLogs} {
+        variable viewerLogs
+        dict set bundle viewer_logs $viewerLogs
+    }
+    if {$includeManifest} {
+        dict set bundle mock_manifest $mockManifest
+    }
+    return $bundle
+}
+
+proc ::qemu::jsonEscape {value} {
+    return [string map {\\ \\\\ \" \\\" \n \\n \r \\r \t \\t} $value]
+}
+
+proc ::qemu::serializeDict {d {indent 2}} {
+    set pad [string repeat " " $indent]
+    set parts {}
+    dict for {k v} $d {
+        if {[catch {dict size $v}]==0} {
+            set serialized [::qemu::serializeDict $v [expr {$indent + 2}]]
+            lappend parts "${pad}\"[jsonEscape $k]\": $serialized"
+        } elseif {[::qemu::shouldSerializeAsList $k $v]} {
+            lappend parts "${pad}\"[jsonEscape $k]\": [::qemu::serializeList $v [expr {$indent + 2}]]"
+        } else {
+            lappend parts "${pad}\"[jsonEscape $k]\": \"[jsonEscape $v]\""
+        }
+    }
+    return "{\n[join $parts ",\n"]\n[string repeat " " [expr {$indent - 2}]]}"
+}
+
+proc ::qemu::serializeList {lst {indent 2}} {
+    set pad [string repeat " " $indent]
+    set basePad [string repeat " " [expr {$indent - 2}]]
+    set parts {}
+    foreach item $lst {
+        if {[catch {dict size $item}]==0} {
+            lappend parts "${pad}[::qemu::serializeDict $item [expr {$indent + 2}]]"
+        } else {
+            lappend parts "${pad}\"[jsonEscape $item]\""
+        }
+    }
+    return "[\n[join $parts ",\n"]\n$basePad]"
+}
+
+proc ::qemu::shouldSerializeAsList {key value} {
+    set listKeys {vms disks net viewer_logs endpoints}
+    if {[lsearch -exact $listKeys $key] != -1} {
+        return 1
+    }
+    if {![string is list -strict $value]} {
+        return 0
+    }
+    if {[llength $value] == 0} {
+        return 1
+    }
+    if {[catch {dict size [lindex $value 0]}]==0} {
+        return 1
+    }
+    return 0
+}
+
+proc ::qemu::serializeDiagnostics {bundle} {
+    set json "{\n"
+    set fields {}
+    dict for {k v} $bundle {
+        if {[catch {dict size $v}]==0} {
+            lappend fields "  \"[jsonEscape $k]\": [::qemu::serializeDict $v 4]"
+        } elseif {[::qemu::shouldSerializeAsList $k $v]} {
+            lappend fields "  \"[jsonEscape $k]\": [::qemu::serializeList $v 4]"
+        } else {
+            lappend fields "  \"[jsonEscape $k]\": \"[jsonEscape $v]\""
+        }
+    }
+    append json "[join $fields ",\n"]\n"
+    append json "}"
+    return $json
+}
+
+proc ::qemu::exportDiagnostics {win varName} {
+    upvar $varName cfg
+    if {![info exists cfg(path)] || $cfg(path) eq ""} {
+        tk_messageBox -icon warning -type ok -title "Chybí cesta" \
+            -message "Vyberte cílový soubor pro export."
+        return
+    }
+    set includeLogs [expr {[info exists cfg(includeLogs)] ? $cfg(includeLogs) : 0}]
+    set includeManifest [expr {[info exists cfg(includeManifest)] ? $cfg(includeManifest) : 0}]
+    set data [::qemu::collectDiagnosticsData $includeLogs $includeManifest]
+    set serialized [::qemu::serializeDiagnostics $data]
+    if {[catch {set fh [open $cfg(path) w]} err]} {
+        tk_messageBox -icon error -type ok -title "Export selhal" \
+            -message "Nelze otevřít soubor:\n$err"
+        return
+    }
+    puts $fh $serialized
+    close $fh
+    ::qemu::appendViewerLog "Diagnostický balíček uložen do $cfg(path)"
+    tk_messageBox -icon info -type ok -title "Export dokončen" \
+        -message "Diagnostický balíček byl uložen do:\n$cfg(path)"
+    destroy $win
+}
+
+proc ::qemu::chooseExportPath {varName} {
+    upvar $varName cfg
+    set path [tk_getSaveFile -title "Cílový soubor exportu" -defaultextension ".json" \
+        -filetypes {{"JSON soubor" {.json}} {"Všechny soubory" {*}}}]
+    if {$path ne ""} {
+        set cfg(path) $path
+    }
+}
+
+proc ::qemu::openExportDialog {} {
+    set varName "::qemu::export_[string map {. _} [clock clicks]]"
+    set win [toplevel .export]
+    wm title $win "Export diagnostiky"
+    ttk::label $win.pathL -text "Cílový soubor"
+    ttk::entry $win.pathE -textvariable ${varName}(path) -width 50
+    ttk::button $win.browse -text "Vybrat…" -command [list ::qemu::chooseExportPath $varName]
+    grid $win.pathL -row 0 -column 0 -sticky w -padx 4 -pady 4
+    grid $win.pathE -row 0 -column 1 -sticky we -padx 4 -pady 4
+    grid $win.browse -row 0 -column 2 -sticky we -padx 4 -pady 4
+
+    ttk::checkbutton $win.logs -text "Připojit logy z vieweru" -variable ${varName}(includeLogs)
+    ttk::checkbutton $win.manifest -text "Připojit manifest mock backendu" -variable ${varName}(includeManifest)
+    grid $win.logs -row 1 -column 0 -columnspan 3 -sticky w -padx 4 -pady 2
+    grid $win.manifest -row 2 -column 0 -columnspan 3 -sticky w -padx 4 -pady 2
+
+    ttk::frame $win.actions
+    ttk::button $win.actions.ok -text "Exportovat" -command [list ::qemu::exportDiagnostics $win $varName]
+    ttk::button $win.actions.cancel -text "Zavřít" -command [list destroy $win]
+    pack $win.actions.ok $win.actions.cancel -side left -padx 4 -pady 4
+    grid $win.actions -row 3 -column 0 -columnspan 3 -sticky e -padx 4 -pady 6
+
+    set ${varName}(path) [file normalize [file join [pwd] "diagnostics_bundle.json"]]
+    set ${varName}(includeLogs) 1
+    set ${varName}(includeManifest) 1
+    grid columnconfigure $win 1 -weight 1
 }
 
 ::qemu::mainUi
