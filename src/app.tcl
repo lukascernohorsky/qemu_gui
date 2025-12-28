@@ -327,9 +327,14 @@ proc ::virt::ui::saveLogs {} {
     if {$path eq ""} { return }
     set txt .container.detail.nb.logs.text
     set content [$txt get 1.0 end]
-    set fh [open $path w]
-    puts $fh $content
-    close $fh
+    if {[catch {
+        set fh [open $path w]
+        puts $fh $content
+        close $fh
+    } err]} {
+        tk_messageBox -icon error -type ok -title "Save failed" -message "Could not save logs:\n$err"
+        return
+    }
     tk_messageBox -icon info -type ok -title "Logs saved" -message "Logs saved to $path"
 }
 
@@ -338,7 +343,10 @@ proc ::virt::ui::exportDiagnostics {} {
     if {$path eq ""} { return }
     set logsTxt [.container.detail.nb.logs.text get 1.0 end]
     set report [::virt::diagnostics::collect $::virt::appVersion $::virt::state::drivers $::virt::state::connections [::virt::jobs::recent] $logsTxt]
-    ::virt::diagnostics::write $report $path
+    if {[catch {::virt::diagnostics::write $report $path} err]} {
+        tk_messageBox -icon error -type ok -title "Export failed" -message "Could not write diagnostics:\n$err"
+        return
+    }
     tk_messageBox -icon info -type ok -title "Diagnostics exported" -message "Diagnostics written to $path"
 }
 
