@@ -11,6 +11,7 @@ source [file join $::virt::ROOT core/exec.tcl]
 source [file join $::virt::ROOT core/plugin_loader.tcl]
 source [file join $::virt::ROOT core/commands.tcl]
 source [file join $::virt::ROOT core/jobs.tcl]
+source [file join $::virt::ROOT core/diagnostics.tcl]
 
 namespace eval ::virt {
     variable appVersion "0.2.0"
@@ -83,7 +84,7 @@ proc ::virt::ui::build {} {
 
     ttk::frame .container.toolbar
     foreach {key label} {
-        new "New" start "Start" stop "Stop" force "Force" delete "Delete" console "Open Console" ssh "Open SSH Terminal" refresh "Refresh" prefs "Preferences" savelogs "Save Logs"
+        new "New" start "Start" stop "Stop" force "Force" delete "Delete" console "Open Console" ssh "Open SSH Terminal" refresh "Refresh" prefs "Preferences" savelogs "Save Logs" diag "Export Diagnostics"
     } {
         ttk::button .container.toolbar.$key -text $label -command [list ::virt::ui::handleAction $key]
         pack .container.toolbar.$key -side left -padx 2 -pady 2
@@ -177,6 +178,7 @@ proc ::virt::ui::handleAction {action} {
     if {$action eq "prefs"} { ::virt::ui::openPrefs }
     if {$action eq "ssh"} { ::virt::ui::openSshTemplate }
     if {$action eq "savelogs"} { ::virt::ui::saveLogs }
+    if {$action eq "diag"} { ::virt::ui::exportDiagnostics }
 }
 
 proc ::virt::ui::guestActions {guestId} {
@@ -282,6 +284,15 @@ proc ::virt::ui::saveLogs {} {
     puts $fh $content
     close $fh
     tk_messageBox -icon info -type ok -title "Logs saved" -message "Logs saved to $path"
+}
+
+proc ::virt::ui::exportDiagnostics {} {
+    set path [tk_getSaveFile -title "Export Diagnostics" -defaultextension ".json"]
+    if {$path eq ""} { return }
+    set logsTxt [.container.detail.nb.logs.text get 1.0 end]
+    set report [::virt::diagnostics::collect $::virt::appVersion $::virt::state::drivers $::virt::state::connections [::virt::jobs::recent] $logsTxt]
+    ::virt::diagnostics::write $report $path
+    tk_messageBox -icon info -type ok -title "Diagnostics exported" -message "Diagnostics written to $path"
 }
 
 proc ::virt::ui::renderHistory {} {

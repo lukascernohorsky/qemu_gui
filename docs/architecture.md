@@ -10,6 +10,7 @@ This repository scaffolds a Tcl/Tk application named **virt-tk-manager** that fo
   - `commands.tcl`: command registry for backend operations, including privilege and `supports_dry_run` flags (mock commands seeded).
   - `jobs.tcl`: minimal job runner/history that honors dry-run support per command and records results for UI logs.
   - `plugin_loader.tcl`: manifest loader + driver instantiation helper.
+  - `diagnostics.tcl`: collects app/drivers/connections/jobs/logs into a JSON bundle for export.
 - **Drivers (`src/drivers/*`)**: each backend has a `manifest.json` and `driver.tcl` implementing required methods (`detect`, `capabilities`, `inventory`, `guest_actions`, `console_info`, `command_for_action`). A deterministic `mock` driver seeds the UI for CI and offline demos.
 
 ## Plugin API Skeleton
@@ -24,7 +25,7 @@ This repository scaffolds a Tcl/Tk application named **virt-tk-manager** that fo
 ## UI Model
 - **Connections**: derived from loaded drivers; each driver maps to a local connection (placeholder until SSH transport is added).
 - **Objects**: guests, storage pools, and networks rendered in a tree. Detail panel shows summary and logs.
-- **Actions**: toolbar buttons call `runGuestAction` which resolves driver action -> command-id -> job run (dry-run toggle in Preferences). Console action shows viewer hints; Logs tab shows recent command outcomes, History tab shows persisted job records, and logs can be saved to a file.
+- **Actions**: toolbar buttons call `runGuestAction` which resolves driver action -> command-id -> job run (dry-run toggle in Preferences). Console action shows viewer hints; Logs tab shows recent command outcomes, History tab shows persisted job records, logs can be saved to a file, and diagnostics export produces a JSON report.
 
 ## Job/Task and Operations Queue (planned)
 - Future modules will add a job controller for async operations, per the acceptance criteria (dry-run, rollback hooks, diagnostics bundle). Current scaffold logs intent only.
