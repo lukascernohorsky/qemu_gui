@@ -123,6 +123,7 @@ proc ::virt::ui::build {} {
     pack .container.status -fill x -pady 4
 
     ::virt::ui::populateTree
+    ::virt::ui::updateToolbarState
 }
 
 proc ::virt::ui::populateTree {} {
@@ -141,6 +142,7 @@ proc ::virt::ui::populateTree {} {
         }
     }
     $tree selection set [$tree get_children {}]
+    ::virt::ui::updateToolbarState
 }
 
 proc ::virt::ui::renderDetails {} {
@@ -151,6 +153,7 @@ proc ::virt::ui::renderDetails {} {
     $txt delete 1.0 end
     if {$sel eq ""} {
         $txt insert end "Select an item to view details."
+        ::virt::ui::updateToolbarState
     } else {
         set id [lindex $sel 0]
         set kind [$tree set $id type]
@@ -163,8 +166,27 @@ proc ::virt::ui::renderDetails {} {
         } else {
             $txt insert end [$tree item $id -text]
         }
+        ::virt::ui::updateToolbarState
     }
     $txt configure -state disabled
+}
+
+proc ::virt::ui::updateToolbarState {} {
+    set tree .container.tree
+    set sel [$tree selection]
+    set isGuest 0
+    if {$sel ne ""} {
+        set isGuest [expr {[.container.tree set [lindex $sel 0] type] eq "guest"}]
+    }
+    foreach btn {start stop force delete console} {
+        if {[winfo exists .container.toolbar.$btn]} {
+            if {$isGuest} {
+                .container.toolbar.$btn state !disabled
+            } else {
+                .container.toolbar.$btn state disabled
+            }
+        }
+    }
 }
 
 proc ::virt::ui::handleAction {action} {
