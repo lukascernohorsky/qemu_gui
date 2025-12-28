@@ -14,6 +14,7 @@ if {[catch {package require Tk} err]} {
 namespace eval ::qemu {
     variable appVersion "0.1"
     variable storageDir [file normalize [file join [pwd] "vms"]]
+    variable manifestPath [file normalize [file join [pwd] "mock_data" "manifest.json"]]
     variable vmList {}
     variable selectedVm ""
     variable qemuPathOverrides {
@@ -22,6 +23,10 @@ namespace eval ::qemu {
         aarch64 ""
         arm ""
     }
+    variable mockCapabilities {}
+    variable mockLimits {}
+    variable logWidget ""
+    variable pendingLogMessages {}
 }
 
 proc ::qemu::ensureStorage {} {
@@ -37,6 +42,75 @@ proc ::qemu::sanitizeId {name} {
     if {$base eq ""} { set base "vm" }
     set id "${base}_[clock format [clock seconds] -format %Y%m%d%H%M%S]"
     return $id
+}
+
+proc ::qemu::logMessage {level message} {
+    variable logWidget
+    variable pendingLogMessages
+    set timestamp [clock format [clock seconds] -format "%Y-%m-%d %H:%M:%S"]
+    set line "[$timestamp] [string toupper $level]: $message"
+    if {$logWidget ne "" && [winfo exists $logWidget]} {
+        $logWidget configure -state normal
+        $logWidget insert end "$line\n"
+        $logWidget see end
+        $logWidget configure -state disabled
+    } else {
+        lappend pendingLogMessages $line
+    }
+    puts $line
+}
+
+proc ::qemu::attachLogWidget {widgetPath} {
+    variable logWidget
+    variable pendingLogMessages
+    set logWidget $widgetPath
+    if {![winfo exists $widgetPath]} { return }
+    $widgetPath configure -state normal
+    foreach line $pendingLogMessages {
+        $widgetPath insert end "$line\n"
+    }
+    $widgetPath configure -state disabled
+    set pendingLogMessages {}
+}
+
+proc ::qemu::loadManifest {} {
+    variable manifestPath
+    variable mockCapabilities
+    variable mockLimits
+    if {![file exists $manifestPath]} {
+        logMessage warning "Manifest $manifestPath nebyl nalezen, používám prázdné schopnosti."
+        return
+    }
+    if {[catch {package require json} err]} {
+        logMessage error "Nelze načíst manifest: chybí balíček json ($err)."
+        return
+    }
+    if {[catch {
+        set fh [open $manifestPath r]
+        set content [read $fh]
+        close $fh
+        set data [json::json2dict $content]
+    } parseErr]} {
+        logMessage error "Parsování manifestu selhalo: $parseErr"
+        return
+    }
+    if {![dict exists $data capabilities] || ![dict exists $data limits]} {
+        logMessage error "Manifest postrádá klíče capabilities/limits."
+        return
+    }
+    set mockCapabilities [dict get $data capabilities]
+    set limits {}
+    foreach key {maxDisks maxNics maxCpus} {
+        if {![dict exists $data limits $key]} { continue }
+        set value [dict get $data limits $key]
+        if {![string is integer -strict $value] || $value < 0} {
+            logMessage warning "Limit $key má neplatnou hodnotu '$value' a bude ignorován."
+            continue
+        }
+        dict set limits $key $value
+    }
+    set mockLimits $limits
+    logMessage info "Manifest načten: [dict size $mockCapabilities] capability klíčů, limity [dict keys $mockLimits]."
 }
 
 proc ::qemu::loadVmFile {path} {
@@ -103,6 +177,35 @@ proc ::qemu::getDefaultConfig {} {
         disks {} \
         net {} \
     ]
+}
+
+proc ::qemu::mock_new_vm {cfg} {
+    variable mockLimits
+    set errors {}
+    set diskCount [llength [dict get $cfg disks]]
+    set nicCount [llength [dict get $cfg net]]
+    set cpuCount 0
+    set rawCpu [dict get $cfg cpus]
+    if {[string is integer -strict $rawCpu]} {
+        set cpuCount $rawCpu
+    } else {
+        lappend errors "Počet CPU není celé číslo: '$rawCpu'."
+    }
+    if {[dict exists $mockLimits maxDisks] && $diskCount > [dict get $mockLimits maxDisks]} {
+        lappend errors "Počet disků ($diskCount) překračuje limit [dict get $mockLimits maxDisks]."
+    }
+    if {[dict exists $mockLimits maxNics] && $nicCount > [dict get $mockLimits maxNics]} {
+        lappend errors "Počet síťových rozhraní ($nicCount) překračuje limit [dict get $mockLimits maxNics]."
+    }
+    if {[dict exists $mockLimits maxCpus] && $cpuCount > [dict get $mockLimits maxCpus]} {
+        lappend errors "Počet CPU ($cpuCount) překračuje limit [dict get $mockLimits maxCpus]."
+    }
+    if {[llength $errors]} {
+        logMessage error "mock_new_vm: [join $errors {; }]"
+        return [dict create ok 0 errors $errors]
+    }
+    logMessage info "mock_new_vm: konfigurace [dict get $cfg name] splňuje stanovené limity."
+    return [dict create ok 1]
 }
 
 proc ::qemu::addDiskToConfig {cfg diskDict} {
@@ -191,11 +294,37 @@ proc ::qemu::startVm {cfg} {
     set commandStr [join $cmd " "]
     set res [tk_messageBox -type yesno -icon question -title "Spustit VM" \
         -message "Spustit následující příkaz?\n$commandStr"]
-    if {$res ne "yes"} { return }
+    if {$res ne "yes"} {
+        logMessage warning "Spuštění VM [dict get $cfg name] zrušeno uživatelem."
+        return [dict create ok 0 message "Start cancelled"]
+    }
     if {[catch {eval exec {*}$cmd &} err]} {
         tk_messageBox -icon error -type ok -title "Spuštění selhalo" \
             -message "Příkaz se nepodařilo spustit:\n$err"
+        logMessage error "Spuštění VM [dict get $cfg name] selhalo: $err"
+        return [dict create ok 0 message $err]
     }
+    logMessage info "Příkaz pro VM [dict get $cfg name] spuštěn: $commandStr"
+    return [dict create ok 1 message "VM spuštěno"]
+}
+
+proc ::qemu::stopVm {cfg} {
+    # Placeholder: skutečné zastavení QEMU by vyžadovalo sledování procesu/QMP.
+    set name [dict get $cfg name]
+    logMessage warning "Požadavek na STOP pro VM $name (mock akce, bez přímé kontroly procesu)."
+    tk_messageBox -icon info -type ok -title "Stop VM" \
+        -message "Mock stop: zastavení VM $name není implementováno."
+    return [dict create ok 1 message "Stop požadavek zalogován"]
+}
+
+proc ::qemu::restartVm {cfg} {
+    set name [dict get $cfg name]
+    logMessage info "Restart VM $name požadován."
+    set stopRes [stopVm $cfg]
+    if {![dict get $stopRes ok]} {
+        return $stopRes
+    }
+    return [startVm $cfg]
 }
 
 proc ::qemu::showCommand {cfg} {
@@ -373,17 +502,17 @@ proc ::qemu::confirmAddDisk {win parent cfgVar} {
 
 proc ::qemu::refreshDiskList {parent cfgVar} {
     upvar $cfgVar cfg
-    $parent.disks delete 0 end
+    $parent.list delete 0 end
     foreach disk $cfg(disks) {
         dict with disk {
-            $parent.disks insert end "$media: $file ($format, $if) [boot:$boot ro:$readonly]"
+            $parent.list insert end "$media: $file ($format, $if) [boot:$boot ro:$readonly]"
         }
     }
 }
 
 proc ::qemu::removeSelectedDisk {parent cfgVar} {
     upvar $cfgVar cfg
-    set sel [$parent.disks curselection]
+    set sel [$parent.list curselection]
     if {$sel eq ""} { return }
     set disks $cfg(disks)
     set keep {}
@@ -444,17 +573,17 @@ proc ::qemu::confirmAddNet {win parent cfgVar} {
 
 proc ::qemu::refreshNetList {parent cfgVar} {
     upvar $cfgVar cfg
-    $parent.nets delete 0 end
+    $parent.list delete 0 end
     foreach net $cfg(net) {
         dict with net {
-            $parent.nets insert end "$type/$model hostfwd:$hostfwd br:$br tap:$tap mac:$mac"
+            $parent.list insert end "$type/$model hostfwd:$hostfwd br:$br tap:$tap mac:$mac"
         }
     }
 }
 
 proc ::qemu::removeSelectedNet {parent cfgVar} {
     upvar $cfgVar cfg
-    set sel [$parent.nets curselection]
+    set sel [$parent.list curselection]
     if {$sel eq ""} { return }
     set nets $cfg(net)
     set keep {}
@@ -486,6 +615,12 @@ proc ::qemu::saveVmFromForm {win mode id cfgVar} {
     if {![info exists cfg(net)]} { set cfg(net) {} }
     dict set configDict disks $cfg(disks)
     dict set configDict net $cfg(net)
+    set validation [mock_new_vm $configDict]
+    if {![dict get $validation ok]} {
+        set message "Nelze uložit VM kvůli limitům:\n[join [dict get $validation errors] \n]"
+        tk_messageBox -icon error -type ok -title "Limity překročeny" -message $message
+        return
+    }
     if {$mode eq "new"} {
         set id [sanitizeId [dict get $configDict name]]
     }
@@ -589,6 +724,34 @@ proc ::qemu::renderDetails {id} {
     $txt configure -state disabled
 }
 
+proc ::qemu::runSelectedAction {action} {
+    set sel [.main.list selection]
+    if {$sel eq ""} {
+        logMessage warning "Nebyla vybrána žádná položka pro akci $action."
+        return
+    }
+    set vm [::qemu::getVmById [lindex $sel 0]]
+    if {$vm eq ""} {
+        logMessage error "Konfigurace VM nebyla nalezena pro akci $action."
+        return
+    }
+    switch -- $action {
+        start { startVm $vm }
+        stop { stopVm $vm }
+        restart { restartVm $vm }
+        default { logMessage warning "Neznámá akce: $action" }
+    }
+}
+
+proc ::qemu::openRowMenu {X Y x y} {
+    set row [.main.list identify row $y]
+    if {$row ne ""} {
+        .main.list selection set $row
+        ::qemu::selectVm
+    }
+    tk_popup .main.rowMenu $X $Y
+}
+
 proc ::qemu::openSettingsDialog {} {
     variable qemuPathOverrides
     set win [toplevel .settings]
@@ -608,6 +771,7 @@ proc ::qemu::openSettingsDialog {} {
 
 proc ::qemu::mainUi {} {
     ensureStorage
+    loadManifest
     loadAll
     ttk::frame .main -padding 6
     pack .main -fill both -expand 1
@@ -631,12 +795,9 @@ proc ::qemu::mainUi {} {
             ::qemu::deleteVm [lindex $sel 0]
         }
     }
-    ttk::button .main.toolbar.start -text "Start" -command {
-        set sel [.main.list selection]
-        if {$sel eq ""} { return }
-        set vm [::qemu::getVmById [lindex $sel 0]]
-        ::qemu::startVm $vm
-    }
+    ttk::button .main.toolbar.start -text "Start" -command {::qemu::runSelectedAction start}
+    ttk::button .main.toolbar.stop -text "Stop" -command {::qemu::runSelectedAction stop}
+    ttk::button .main.toolbar.restart -text "Restart" -command {::qemu::runSelectedAction restart}
     ttk::button .main.toolbar.cmd -text "Příkaz" -command {
         set sel [.main.list selection]
         if {$sel eq ""} { return }
@@ -645,7 +806,8 @@ proc ::qemu::mainUi {} {
     }
     ttk::button .main.toolbar.settings -text "Nastavení QEMU cest" -command ::qemu::openSettingsDialog
     pack .main.toolbar.new .main.toolbar.edit .main.toolbar.del \
-        .main.toolbar.start .main.toolbar.cmd .main.toolbar.settings \
+        .main.toolbar.start .main.toolbar.stop .main.toolbar.restart \
+        .main.toolbar.cmd .main.toolbar.settings \
         -side left -padx 3
     pack .main.toolbar -fill x -pady 4
 
@@ -667,7 +829,12 @@ proc ::qemu::mainUi {} {
     .main.list column accel -width 90
     .main.list column display -width 90
     bind .main.list <<TreeviewSelect>> ::qemu::selectVm
+    bind .main.list <Button-3> [list ::qemu::openRowMenu %X %Y %x %y]
     pack .main.list -fill both -expand 1
+    menu .main.rowMenu -tearoff 0
+    .main.rowMenu add command -label "Start" -command {::qemu::runSelectedAction start}
+    .main.rowMenu add command -label "Stop" -command {::qemu::runSelectedAction stop}
+    .main.rowMenu add command -label "Restart" -command {::qemu::runSelectedAction restart}
     .main.pw add .main.list -weight 3
 
     ttk::frame .main.detail
@@ -676,6 +843,16 @@ proc ::qemu::mainUi {} {
     pack .main.detail.label -anchor w
     pack .main.detail.text -fill both -expand 1
     .main.pw add .main.detail -weight 2
+
+    ttk::frame .main.log
+    ttk::label .main.log.label -text "Logy"
+    text .main.log.text -height 8 -wrap word -state disabled
+    pack .main.log.label -anchor w
+    pack .main.log.text -fill both -expand 1
+    .main.pw add .main.log -weight 1
+
+    attachLogWidget .main.log.text
+    logMessage info "UI inicializováno."
 
     refreshVmList
 }

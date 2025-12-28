@@ -1,0 +1,15 @@
+{
+  "capabilities": {
+    "features": [
+      "snapshot",
+      "bridge",
+      "uefi"
+    ],
+    "version": "1.0.0"
+  },
+  "limits": {
+    "maxDisks": 4,
+    "maxNics": 3,
+    "maxCpus": 8
+  }
+}
