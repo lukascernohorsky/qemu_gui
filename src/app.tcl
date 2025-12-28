@@ -200,6 +200,10 @@ proc ::virt::ui::runGuestAction {commandId} {
     set sel [.container.tree selection]
     if {$sel eq ""} { return }
     set guestId [lindex $sel 0]
+    if {[.container.tree set $guestId type] ne "guest"} {
+        tk_messageBox -icon warning -type ok -title "No guest selected" -message "Please select a guest to run this action."
+        return
+    }
     set connNode [.container.tree parent $guestId]
     foreach c $::virt::state::connections {
         if {[dict get $c id] eq $connNode} {
@@ -208,6 +212,7 @@ proc ::virt::ui::runGuestAction {commandId} {
             set res [::virt::jobs::runCommand $cmdId {}]
             ::virt::ui::appendLog $res
             ::virt::ui::renderDetails
+            ::virt::ui::setStatus "Last action: $commandId status=[dict get $res status]"
             return
         }
     }
@@ -305,6 +310,12 @@ proc ::virt::ui::renderHistory {} {
         $txt insert end "[clock format $ts -format \"%Y-%m-%d %H:%M:%S\"] :: [dict get $res command-id] :: status=[dict get $res status] dry-run=[dict get $res dry-run]\n"
     }
     $txt configure -state disabled
+}
+
+proc ::virt::ui::setStatus {msg} {
+    if {[winfo exists .container.status]} {
+        .container.status configure -text $msg
+    }
 }
 
 ::virt::commands::init
