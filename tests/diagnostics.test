@@ -1,0 +1,26 @@
+package require tcltest
+namespace import ::tcltest::*
+
+set ::env(QEMU_GUI_HEADLESS) 1
+source [file join [file dirname [info script]] .. qemu_gui.tcl]
+
+::tcltest::test diagnostics_redaction {sensitive fields are redacted} -body {
+    set cfg [::qemu::getDefaultConfig]
+    dict set cfg iso "/tmp/sensitive.iso"
+    dict set cfg firmware "/tmp/ovmf.fd"
+    dict set cfg disks [list [dict create file "/tmp/disk.qcow2" format qcow2 if virtio media disk boot 0 readonly 0]]
+    set ::qemu::vmList [list [list "vm1" $cfg]]
+    set data [::qemu::collectDiagnosticsData]
+    set redactedCfg [lindex [lindex [dict get $data vm_inventory] 0] 1]
+    list [dict get $redactedCfg iso] [lindex [dict get $redactedCfg disks] 0]
+} -result {<redacted> {file <redacted> format qcow2 if virtio media disk boot 0 readonly 0}}
+
+::tcltest::test diagnostics_bundle {tar.gz bundle is created} -body {
+    set ::qemu::vmList {}
+    set archive [::qemu::writeDiagnosticsBundle [::qemu::collectDiagnosticsData] ""]
+    set exists [file exists $archive]
+    file delete -force $archive
+    set exists
+} -result 1
+
+cleanupTests

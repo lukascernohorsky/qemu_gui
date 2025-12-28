@@ -1,0 +1,17 @@
+package require tcltest
+namespace import ::tcltest::*
+
+set manifestFile [file normalize [file join [file dirname [info script]] .. mock_data manifest.json]]
+set fh [open $manifestFile r]
+set manifestContent [read $fh]
+close $fh
+
+::tcltest::test manifest_includes_capabilities {manifest lists key sections} -body {
+    expr {[regexp {"capabilities"} $::manifestContent] && [regexp {"version"} $::manifestContent] && [regexp {"name"} $::manifestContent]}
+} -result 1
+
+::tcltest::test manifest_has_compute_limits {compute limits are present} -body {
+    expr {[string match *\"compute\"* $::manifestContent] && [string match *maxMemory* $::manifestContent]}
+} -result 1
+
+cleanupTests

@@ -88,3 +88,10 @@ V kořenovém adresáři repo je přiložený prototyp `qemu_gui.tcl`, který po
 6. Rozložení je inspirováno virt-managerem: horní lišta s akcemi (Nový, Upravit, Smazat, Start, Příkaz, Nastavení), hlavní stromový seznam VM s klíčovými sloupci (architektura, CPU, RAM, akcelerace, display) a spodní panel s textovými detaily a generovaným příkazem pro vybraný VM.
 
 Příkazová řádka QEMU se generuje z konfigurace: zahrnuje `-machine`, `-accel`, `-cpu`, `-smp`, `-m`, `-boot`, `-bios`/firmware, `-vga`, `-display`, `-snapshot`, `-drive` pro každé zařízení, `-cdrom` (pokud je ISO), `-nic` pro každou síť a libovolné dodatečné parametry. 
+
+## Mock data import/export
+
+- **Import mock manifestu**: soubor `mock_data/manifest.json` popisuje capability (`compute`, `storage`, `network`) a slouží pro validaci stub backendu a jeho akce/limity.
+- **Přidání položky inventáře**: tlačítko **Mock backend** → **New VM (mock)** vytvoří záznam v paměťovém inventáři přes job queue; detail okna ukazuje akce/limity vybrané capability.
+- **Export diagnostiky**: tlačítko **Export diagnostiky** přidá job `diagnostics_export`, který vytvoří balíček `diagnostics/*.tar.gz` s redigovanými konfiguracemi VM, capability reportem, mock inventářem a logy jobů.
+- **Testovací běh bez UI**: proměnná `QEMU_GUI_HEADLESS=1` umožní spustit skript a testy bez Tk (používá se v `tests/*.test`).

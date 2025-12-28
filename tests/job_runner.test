@@ -1,0 +1,21 @@
+package require tcltest
+namespace import ::tcltest::*
+
+set ::env(QEMU_GUI_HEADLESS) 1
+source [file join [file dirname [info script]] .. qemu_gui.tcl]
+
+::tcltest::test job_runner_dry_run {job queue completes and logs entry} -body {
+    ::qemu::clearJobState
+    set id [::qemu::enqueueJob mock_new_vm [dict create name "t1" capability compute]]
+    after 1000 {set ::jobDone 1}
+    vwait ::jobDone
+    set job [::qemu::getJob $id]
+    list [dict get $job status] [dict get $job progress] [llength $::qemu::jobLogs]
+} -result {completed 100 3}
+
+::tcltest::test job_runner_clear {clearing queue resets state} -body {
+    ::qemu::clearJobState
+    list [llength $::qemu::jobQueue] [dict size $::qemu::jobDetails]
+} -result {0 0}
+
+cleanupTests
