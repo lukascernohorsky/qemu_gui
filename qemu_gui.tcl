@@ -22,6 +22,172 @@ namespace eval ::qemu {
         aarch64 ""
         arm ""
     }
+    variable jobSeq 0
+    variable jobDetails {}
+    variable jobLogs {}
+    variable activeJob ""
+    variable lastExitCode 0
+}
+
+proc ::qemu::statusColors {state} {
+    switch -- $state {
+        ok { return [list -background "#d9ead3" -foreground "#1f5130"] }
+        warn { return [list -background "#fff3cd" -foreground "#7c5700"] }
+        error { return [list -background "#f8d7da" -foreground "#842029"] }
+        default { return [list -background "#e8f0fe" -foreground "#1f3b82"] }
+    }
+}
+
+proc ::qemu::setStatus {text {state info} {exitCode ""}} {
+    variable lastExitCode
+    if {$exitCode ne ""} {
+        set lastExitCode $exitCode
+    }
+    if {[winfo exists .main.status]} {
+        set colors [statusColors $state]
+        .main.status configure -text "$text (Exit code: $lastExitCode)" {*}$colors
+    }
+}
+
+proc ::qemu::updateJobUi {} {
+    variable activeJob
+    if {[winfo exists .main.toolbar.stop]} {
+        .main.toolbar.stop configure -state [expr {$activeJob eq "" ? "disabled" : "normal"}]
+    }
+}
+
+proc ::qemu::appendJobLog {id stream line} {
+    variable jobLogs
+    variable jobDetails
+    set logs [expr {[dict exists $jobLogs $id] ? [dict get $jobLogs $id] : {}}]
+    lappend logs [list $stream $line]
+    dict set jobLogs $id $logs
+    if {$stream eq "stderr"} {
+        dict set jobDetails $id lastErr $line
+    }
+}
+
+proc ::qemu::handleJobReadable {id chan stream} {
+    variable jobDetails
+    if {![dict exists $jobDetails $id]} { return }
+    if {[eof $chan]} {
+        chan event $chan readable {}
+        if {$stream eq "stderr"} {
+            catch {close $chan}
+            dict set jobDetails $id stderrClosed 1
+        } else {
+            dict set jobDetails $id stdoutClosed 1
+        }
+        ::qemu::maybeFinishJob $id
+        return
+    }
+    while {[gets $chan line] >= 0} {
+        ::qemu::appendJobLog $id $stream $line
+    }
+}
+
+proc ::qemu::maybeFinishJob {id} {
+    variable jobDetails
+    if {![dict exists $jobDetails $id]} { return }
+    set det [dict get $jobDetails $id]
+    set outClosed [expr {[dict exists $det stdoutClosed] ? [dict get $det stdoutClosed] : 0}]
+    set errClosed [expr {[dict exists $det stderrClosed] ? [dict get $det stderrClosed] : 0}]
+    if {!$outClosed || !$errClosed} {
+        return
+    }
+    set stdoutChan [dict get $det stdoutChan]
+    set exitCode 0
+    set lastErr [expr {[dict exists $det lastErr] ? [dict get $det lastErr] : ""}]
+    set closeErr ""
+    if {[catch {close $stdoutChan} closeErr options]} {
+        set errCode [dict get $options -errorcode {}]
+        if {[llength $errCode] >= 3 && [lindex $errCode 0] eq "CHILDSTATUS"} {
+            set exitCode [lindex $errCode 2]
+        } else {
+            set exitCode 1
+        }
+        if {$lastErr eq "" && $closeErr ne ""} {
+            set lastErr $closeErr
+        }
+    }
+    set status [expr {$exitCode == 0 ? "success" : "failed"}]
+    set stopped [expr {[dict exists $det stopped] ? [dict get $det stopped] : 0}]
+    if {$stopped} {
+        set status "stopped"
+        if {$lastErr eq ""} { set lastErr "Job stopped by user." }
+    }
+    ::qemu::finishJob $id $status $exitCode $lastErr
+}
+
+proc ::qemu::finishJob {id status exitCode lastErr} {
+    variable jobDetails
+    variable activeJob
+    dict set jobDetails $id status $status
+    dict set jobDetails $id exitCode $exitCode
+    dict set jobDetails $id lastErr $lastErr
+    ::qemu::appendJobLog $id status "Exit code: $exitCode"
+    if {$lastErr ne ""} {
+        ::qemu::appendJobLog $id status "Last stderr: $lastErr"
+    }
+    set activeJob ""
+    ::qemu::updateJobUi
+    if {$status eq "success"} {
+        ::qemu::setStatus "Hotovo" ok $exitCode
+    } elseif {$status eq "stopped"} {
+        ::qemu::setStatus "Job přerušen (exit $exitCode)" warn $exitCode
+    } else {
+        set msg "Job selhal"
+        if {$lastErr ne ""} { append msg ": $lastErr" }
+        ::qemu::setStatus $msg error $exitCode
+    }
+}
+
+proc ::qemu::runJobAsync {label cmdList} {
+    variable jobSeq
+    variable jobDetails
+    variable jobLogs
+    variable activeJob
+    incr jobSeq
+    set jobId "job$jobSeq"
+    dict set jobLogs $jobId {}
+    set errPipe [chan pipe]
+    lassign $errPipe errR errW
+    set stdoutChan [open "|exec {*}$cmdList 2>@$errW" r]
+    close $errW
+    chan configure $stdoutChan -blocking 0 -encoding utf-8 -buffering line
+    chan configure $errR -blocking 0 -encoding utf-8 -buffering line
+    set pidList [pid $stdoutChan]
+    set pid [lindex $pidList end]
+    dict set jobDetails $jobId [dict create \
+        label $label \
+        cmd $cmdList \
+        pid $pid \
+        status running \
+        exitCode "" \
+        lastErr "" \
+        stdoutChan $stdoutChan \
+        stdoutClosed 0 \
+        stderrClosed 0 \
+        stopped 0 \
+    ]
+    set activeJob $jobId
+    ::qemu::updateJobUi
+    ::qemu::setStatus "Spouštím: $label" info
+    chan event $stdoutChan readable [list ::qemu::handleJobReadable $jobId $stdoutChan stdout]
+    chan event $errR readable [list ::qemu::handleJobReadable $jobId $errR stderr]
+    return $jobId
+}
+
+proc ::qemu::stopActiveJob {} {
+    variable activeJob
+    variable jobDetails
+    if {$activeJob eq ""} { return }
+    set det [dict get $jobDetails $activeJob]
+    set pid [dict get $det pid]
+    dict set jobDetails $activeJob stopped 1
+    ::qemu::appendJobLog $activeJob stderr "Job interrupted by user."
+    catch {exec kill $pid} err
+    ::qemu::setStatus "Ukončuji job..." warn
 }
 
 proc ::qemu::ensureStorage {} {
@@ -187,12 +353,18 @@ proc ::qemu::buildCommand {cfg} {
 }
 
 proc ::qemu::startVm {cfg} {
+    variable activeJob
+    if {$activeJob ne ""} {
+        tk_messageBox -icon warning -type ok -title "Job běží" \
+            -message "Již probíhá jiný job. Počkejte na jeho dokončení nebo jej zastavte."
+        return
+    }
     set cmd [buildCommand $cfg]
     set commandStr [join $cmd " "]
     set res [tk_messageBox -type yesno -icon question -title "Spustit VM" \
         -message "Spustit následující příkaz?\n$commandStr"]
     if {$res ne "yes"} { return }
-    if {[catch {eval exec {*}$cmd &} err]} {
+    if {[catch {::qemu::runJobAsync "Start VM [dict get $cfg name]" $cmd} err]} {
         tk_messageBox -icon error -type ok -title "Spuštění selhalo" \
             -message "Příkaz se nepodařilo spustit:\n$err"
     }
@@ -637,6 +809,7 @@ proc ::qemu::mainUi {} {
         set vm [::qemu::getVmById [lindex $sel 0]]
         ::qemu::startVm $vm
     }
+    ttk::button .main.toolbar.stop -text "Stop" -command ::qemu::stopActiveJob -state disabled
     ttk::button .main.toolbar.cmd -text "Příkaz" -command {
         set sel [.main.list selection]
         if {$sel eq ""} { return }
@@ -645,7 +818,7 @@ proc ::qemu::mainUi {} {
     }
     ttk::button .main.toolbar.settings -text "Nastavení QEMU cest" -command ::qemu::openSettingsDialog
     pack .main.toolbar.new .main.toolbar.edit .main.toolbar.del \
-        .main.toolbar.start .main.toolbar.cmd .main.toolbar.settings \
+        .main.toolbar.start .main.toolbar.stop .main.toolbar.cmd .main.toolbar.settings \
         -side left -padx 3
     pack .main.toolbar -fill x -pady 4
 
@@ -678,6 +851,9 @@ proc ::qemu::mainUi {} {
     .main.pw add .main.detail -weight 2
 
     refreshVmList
+    ttk::label .main.status -text "Připraven"
+    pack .main.status -fill x -pady 4
+    ::qemu::setStatus "Připraven" ok 0
 }
 
 ::qemu::mainUi
