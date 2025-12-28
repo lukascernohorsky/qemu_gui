@@ -22,6 +22,17 @@ namespace eval ::qemu {
         aarch64 ""
         arm ""
     }
+    variable jobQueue {}
+    variable jobRunning 0
+    variable lastJobTime ""
+    variable lastJobStatus "zatím neproběhl"
+    variable lastJobError ""
+    variable toolbarStatusText "Joby neprobíhají"
+    variable queueCountText "Fronta: 0"
+    variable statusBarText "Poslední job: zatím neproběhl"
+    variable tooltipWins {}
+    variable tooltipCounter 0
+    variable mockJobToggle 0
 }
 
 proc ::qemu::ensureStorage {} {
@@ -191,11 +202,15 @@ proc ::qemu::startVm {cfg} {
     set commandStr [join $cmd " "]
     set res [tk_messageBox -type yesno -icon question -title "Spustit VM" \
         -message "Spustit následující příkaz?\n$commandStr"]
-    if {$res ne "yes"} { return }
+    if {$res ne "yes"} {
+        return [dict create status cancel message "Uživatel zrušil spuštění."]
+    }
     if {[catch {eval exec {*}$cmd &} err]} {
         tk_messageBox -icon error -type ok -title "Spuštění selhalo" \
             -message "Příkaz se nepodařilo spustit:\n$err"
+        return [dict create status error message $err]
     }
+    return [dict create status ok message ""]
 }
 
 proc ::qemu::showCommand {cfg} {
@@ -609,6 +624,7 @@ proc ::qemu::openSettingsDialog {} {
 proc ::qemu::mainUi {} {
     ensureStorage
     loadAll
+    ::qemu::initJobState
     ttk::frame .main -padding 6
     pack .main -fill both -expand 1
     ttk::label .main.title -text "QEMU Správce VM" -font "TkDefaultFont 12 bold"
@@ -631,12 +647,8 @@ proc ::qemu::mainUi {} {
             ::qemu::deleteVm [lindex $sel 0]
         }
     }
-    ttk::button .main.toolbar.start -text "Start" -command {
-        set sel [.main.list selection]
-        if {$sel eq ""} { return }
-        set vm [::qemu::getVmById [lindex $sel 0]]
-        ::qemu::startVm $vm
-    }
+    ttk::button .main.toolbar.start -text "Start" -command ::qemu::submitStartJob
+    ttk::button .main.toolbar.mock -text "Mock New" -command ::qemu::enqueueMockJob
     ttk::button .main.toolbar.cmd -text "Příkaz" -command {
         set sel [.main.list selection]
         if {$sel eq ""} { return }
@@ -645,8 +657,11 @@ proc ::qemu::mainUi {} {
     }
     ttk::button .main.toolbar.settings -text "Nastavení QEMU cest" -command ::qemu::openSettingsDialog
     pack .main.toolbar.new .main.toolbar.edit .main.toolbar.del \
-        .main.toolbar.start .main.toolbar.cmd .main.toolbar.settings \
-        -side left -padx 3
+        .main.toolbar.start .main.toolbar.mock .main.toolbar.cmd \
+        .main.toolbar.settings -side left -padx 3
+    ttk::label .main.toolbar.running -textvariable ::qemu::toolbarStatusText
+    ttk::label .main.toolbar.queue -textvariable ::qemu::queueCountText
+    pack .main.toolbar.running .main.toolbar.queue -side right -padx 3
     pack .main.toolbar -fill x -pady 4
 
     ttk::panedwindow .main.pw -orient vertical
@@ -677,7 +692,199 @@ proc ::qemu::mainUi {} {
     pack .main.detail.text -fill both -expand 1
     .main.pw add .main.detail -weight 2
 
+    ttk::frame .main.statusbar -padding {4 2}
+    ttk::label .main.statusbar.lastjob -textvariable ::qemu::statusBarText
+    pack .main.statusbar.lastjob -side left
+    pack .main.statusbar -side bottom -fill x
+    ::qemu::attachTooltip .main.statusbar.lastjob ::qemu::lastJobError
+
     refreshVmList
+    ::qemu::updateJobIndicators
+}
+
+proc ::qemu::initJobState {} {
+    variable jobQueue
+    variable jobRunning
+    variable lastJobTime
+    variable lastJobStatus
+    variable lastJobError
+    variable toolbarStatusText
+    variable queueCountText
+    variable statusBarText
+    set jobQueue {}
+    set jobRunning 0
+    set lastJobTime ""
+    set lastJobStatus "zatím neproběhl"
+    set lastJobError ""
+    set toolbarStatusText "Joby neprobíhají"
+    set queueCountText "Fronta: 0"
+    set statusBarText "Poslední job: zatím neproběhl"
+}
+
+proc ::qemu::submitStartJob {} {
+    set sel [.main.list selection]
+    if {$sel eq ""} { return }
+    set vm [::qemu::getVmById [lindex $sel 0]]
+    ::qemu::enqueueJob start_vm [dict create cfg $vm name [dict get $vm name]]
+}
+
+proc ::qemu::enqueueMockJob {} {
+    variable mockJobToggle
+    set mockJobToggle [expr {!$mockJobToggle}]
+    set payload [dict create duration 1000 fail $mockJobToggle]
+    ::qemu::enqueueJob mock $payload
+}
+
+proc ::qemu::enqueueJob {type data} {
+    variable jobQueue
+    lappend jobQueue [dict create type $type data $data]
+    ::qemu::updateJobIndicators
+    ::qemu::startNextJob
+}
+
+proc ::qemu::startNextJob {} {
+    variable jobQueue
+    variable jobRunning
+    if {$jobRunning} { return }
+    if {[llength $jobQueue] == 0} {
+        ::qemu::updateJobIndicators
+        return
+    }
+    set job [lindex $jobQueue 0]
+    set jobQueue [lrange $jobQueue 1 end]
+    ::qemu::runJob $job
+}
+
+proc ::qemu::runJob {job} {
+    variable jobRunning
+    set jobRunning 1
+    ::qemu::updateToolbarState
+    ::qemu::updateJobIndicators
+    set type [dict get $job type]
+    set data [dict get $job data]
+    switch -- $type {
+        start_vm {
+            ::qemu::performStartJob $data
+        }
+        mock {
+            ::qemu::performMockJob $data
+        }
+        default {
+            ::qemu::finishJob error "Neznámý job typ: $type"
+        }
+    }
+}
+
+proc ::qemu::performStartJob {data} {
+    set cfg [dict get $data cfg]
+    set result [startVm $cfg]
+    set status [dict get $result status]
+    set message [dict get $result message]
+    after 400 [list ::qemu::finishJob $status $message]
+}
+
+proc ::qemu::performMockJob {data} {
+    set duration [expr {[dict exists $data duration] ? [dict get $data duration] : 800}]
+    set shouldFail [expr {[dict exists $data fail] ? [dict get $data fail] : 0}]
+    set message [expr {$shouldFail ? "Mock job selhal pro účely testu." : ""}]
+    set status [expr {$shouldFail ? "error" : "ok"}]
+    after $duration [list ::qemu::finishJob $status $message]
+}
+
+proc ::qemu::finishJob {status message} {
+    variable lastJobTime
+    variable lastJobStatus
+    variable lastJobError
+    variable jobRunning
+    set lastJobTime [clock format [clock seconds] -format "%H:%M:%S"]
+    switch -- $status {
+        ok { set lastJobStatus "úspěch" }
+        cancel { set lastJobStatus "zrušeno" }
+        error { set lastJobStatus "chyba" }
+        default { set lastJobStatus $status }
+    }
+    if {$status eq "error"} {
+        set lastJobError $message
+    } else {
+        set lastJobError ""
+    }
+    set jobRunning 0
+    ::qemu::updateJobIndicators
+    ::qemu::updateToolbarState
+    after 10 ::qemu::startNextJob
+}
+
+proc ::qemu::updateJobIndicators {} {
+    variable jobQueue
+    variable jobRunning
+    variable toolbarStatusText
+    variable queueCountText
+    variable lastJobTime
+    variable lastJobStatus
+    variable statusBarText
+    set toolbarStatusText [expr {$jobRunning ? "Job běží…" : "Joby neprobíhají"}]
+    set queueCountText "Fronta: [llength $jobQueue]"
+    if {$lastJobTime eq ""} {
+        set statusBarText "Poslední job: zatím neproběhl"
+    } else {
+        set statusBarText "Poslední job: $lastJobTime ($lastJobStatus)"
+    }
+}
+
+proc ::qemu::updateToolbarState {} {
+    variable jobRunning
+    if {[winfo exists .main.toolbar.start]} {
+        if {$jobRunning} {
+            .main.toolbar.start state disabled
+        } else {
+            .main.toolbar.start state !disabled
+        }
+    }
+    if {[winfo exists .main.toolbar.mock]} {
+        if {$jobRunning} {
+            .main.toolbar.mock state disabled
+        } else {
+            .main.toolbar.mock state !disabled
+        }
+    }
+}
+
+proc ::qemu::attachTooltip {widget varName} {
+    bind $widget <Enter> [list ::qemu::showTooltip $widget $varName]
+    bind $widget <Leave> [list ::qemu::hideTooltip $widget]
+}
+
+proc ::qemu::showTooltip {widget varName} {
+    variable tooltipCounter
+    variable tooltipWins
+    set text [set $varName]
+    if {$text eq ""} {
+        set text "Žádné chyby zaznamenány."
+    }
+    if {[dict exists $tooltipWins $widget]} {
+        ::qemu::hideTooltip $widget
+    }
+    set tw ".tooltip$tooltipCounter"
+    incr tooltipCounter
+    toplevel $tw
+    wm overrideredirect $tw 1
+    label $tw.lbl -text $text -background "#ffffe0" -borderwidth 1 -relief solid
+    pack $tw.lbl -padx 2 -pady 1
+    set x [expr {[winfo pointerx $widget] + 10}]
+    set y [expr {[winfo pointery $widget] + 10}]
+    wm geometry $tw "+$x+$y"
+    dict set tooltipWins $widget $tw
+}
+
+proc ::qemu::hideTooltip {widget} {
+    variable tooltipWins
+    if {[dict exists $tooltipWins $widget]} {
+        set tw [dict get $tooltipWins $widget]
+        if {[winfo exists $tw]} {
+            destroy $tw
+        }
+        dict unset tooltipWins $widget
+    }
 }
 
 ::qemu::mainUi
