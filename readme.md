@@ -88,8 +88,8 @@ Tento dokument shrnuje klíčové spouštěcí parametry QEMU pro architektury x
 V kořenovém adresáři repo je přiložený prototyp `qemu_gui.tcl`, který pokrývá základ návrhu:
 
 1. Spusťte Tcl/Tk (vyžaduje `tclsh` 8.6+ s Tk): `tclsh qemu_gui.tcl` (wrapper načte `src/app.tcl`).
-2. Po startu se načte mock driver a strom připojení/VM zobrazí dvě vzorové VM. Toolbar akce Start/Stop/Force/Delete spouští joby přes command registry (výchozí dry-run lze vypnout v Preferences); Console zobrazí hint (host/port/command); logy se zapisují do záložky Logs, historie do History, lze je uložit tlačítkem Save Logs a exportovat diagnostiku do JSON (Export Diagnostics).
-3. Detailní panel zobrazuje přehled vybrané položky, záložky Logs/History zobrazují průběh jobů (status, stdout, privilege, případné chyby) a export diagnostiky zahrnuje tyto informace plus přehled driverů/připojení.
+2. Po startu se načte mock driver a strom připojení/VM zobrazí dvě vzorové VM. Toolbar akce Start/Stop/Force/Delete spouští joby přes command registry (výchozí dry-run lze vypnout v Preferences); Console zobrazí hint (host/port/command); logy se zapisují do záložky Logs, historie do History, lze je uložit tlačítkem Save Logs, vymazat Clear Logs a exportovat diagnostiku do JSON (Export Diagnostics).
+3. Detailní panel zobrazuje přehled vybrané položky, záložky Logs/History zobrazují průběh jobů (status, stdout, privilege, případné chyby) a export diagnostiky zahrnuje tyto informace plus přehled driverů/připojení. Stavový řádek ukazuje aktuální výběr a poslední akce.
 4. Volba tématu probíhá automaticky dle platformy (Win: vista/xpnative, macOS: aqua, Unix: yaru/arc/clam fallback), scaling lze nastavit proměnnou prostředí `TK_SCALE`.
 
 Původní návrh formulářů/parametrů VM zůstává referenční pro další iterace: příkazová řádka QEMU se má generovat z konfigurace ( `-machine`, `-accel`, `-cpu`, `-smp`, `-m`, `-boot`, `-bios`/firmware, `-vga`, `-display`, `-snapshot`, `-drive` pro každé zařízení, `-cdrom` pokud je ISO, `-nic` pro každou síť a dodatečné parametry). 
