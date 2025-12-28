@@ -16,6 +16,13 @@ namespace eval ::qemu {
     variable storageDir [file normalize [file join [pwd] "vms"]]
     variable vmList {}
     variable selectedVm ""
+    variable jobLogs {}
+    variable logViewerText ""
+    variable logFilterStatus "all"
+    variable logFilterCode ""
+    variable logPlaybackAfter ""
+    variable logPlaybackQueue {}
+    variable logPlaybackIndex 0
     variable qemuPathOverrides {
         x86_64 ""
         i386 ""
@@ -589,6 +596,158 @@ proc ::qemu::renderDetails {id} {
     $txt configure -state disabled
 }
 
+proc ::qemu::recordJobLog {status code message} {
+    variable jobLogs
+    set entry [dict create \
+        timestamp [clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}] \
+        status $status \
+        code $code \
+        message $message \
+    ]
+    lappend jobLogs $entry
+}
+
+proc ::qemu::logMatchesFilter {log} {
+    variable logFilterStatus
+    variable logFilterCode
+    set status [expr {[dict exists $log status] ? [dict get $log status] : ""}]
+    set code [expr {[dict exists $log code] ? [dict get $log code] : ""}]
+    set statusOk [expr {$logFilterStatus eq "all" || $status eq $logFilterStatus}]
+    set codeFilter [string trim $logFilterCode]
+    set codeOk [expr {$codeFilter eq "" || [string match "*$codeFilter*" $code]}]
+    return [expr {$statusOk && $codeOk}]
+}
+
+proc ::qemu::getFilteredLogs {} {
+    variable jobLogs
+    set result {}
+    foreach log $jobLogs {
+        if {[::qemu::logMatchesFilter $log]} {
+            lappend result $log
+        }
+    }
+    return $result
+}
+
+proc ::qemu::appendLogLine {textWidget log} {
+    set ts [expr {[dict exists $log timestamp] ? [dict get $log timestamp] : ""}]
+    set status [expr {[dict exists $log status] ? [dict get $log status] : ""}]
+    set code [expr {[dict exists $log code] ? [dict get $log code] : ""}]
+    set message [expr {[dict exists $log message] ? [dict get $log message] : ""}]
+    $textWidget configure -state normal
+    $textWidget insert end "$ts [$status/$code] $message\n"
+    $textWidget see end
+    $textWidget configure -state disabled
+}
+
+proc ::qemu::renderLogs {textWidget} {
+    ::qemu::stopLogPlayback
+    $textWidget configure -state normal
+    $textWidget delete 1.0 end
+    foreach log [::qemu::getFilteredLogs] {
+        ::qemu::appendLogLine $textWidget $log
+    }
+    $textWidget see end
+    $textWidget configure -state disabled
+}
+
+proc ::qemu::stopLogPlayback {} {
+    variable logPlaybackAfter
+    if {$logPlaybackAfter ne ""} {
+        after cancel $logPlaybackAfter
+        set logPlaybackAfter ""
+    }
+}
+
+proc ::qemu::playbackStep {textWidget} {
+    variable logPlaybackQueue
+    variable logPlaybackIndex
+    variable logPlaybackAfter
+    if {$logPlaybackIndex >= [llength $logPlaybackQueue]} {
+        set logPlaybackAfter ""
+        return
+    }
+    set log [lindex $logPlaybackQueue $logPlaybackIndex]
+    incr logPlaybackIndex
+    ::qemu::appendLogLine $textWidget $log
+    set logPlaybackAfter [after 400 [list ::qemu::playbackStep $textWidget]]
+}
+
+proc ::qemu::startLogPlayback {textWidget} {
+    variable logPlaybackQueue
+    variable logPlaybackIndex
+    ::qemu::stopLogPlayback
+    set logPlaybackQueue [::qemu::getFilteredLogs]
+    set logPlaybackIndex 0
+    $textWidget configure -state normal
+    $textWidget delete 1.0 end
+    $textWidget configure -state disabled
+    ::qemu::playbackStep $textWidget
+}
+
+proc ::qemu::clearLogs {textWidget} {
+    variable jobLogs
+    set jobLogs {}
+    ::qemu::stopLogPlayback
+    $textWidget configure -state normal
+    $textWidget delete 1.0 end
+    $textWidget configure -state disabled
+}
+
+proc ::qemu::openLogViewer {} {
+    variable logViewerText
+    variable logFilterStatus
+    variable logFilterCode
+    if {[winfo exists .logviewer]} {
+        raise .logviewer
+        focus .logviewer
+        return
+    }
+    set win [toplevel .logviewer]
+    wm title $win "Job logy"
+
+    bind $win <Destroy> {::qemu::stopLogPlayback; set ::qemu::logViewerText ""}
+
+    ttk::frame $win.filters -padding 4
+    ttk::label $win.filters.statusL -text "Status"
+    ttk::combobox $win.filters.status -values {all queued running completed failed} \
+        -textvariable ::qemu::logFilterStatus -state readonly -width 12
+    ttk::label $win.filters.codeL -text "Kód"
+    ttk::entry $win.filters.code -textvariable ::qemu::logFilterCode -width 12
+    ttk::button $win.filters.apply -text "Filtrovat" -command [list ::qemu::renderLogs $win.text]
+    grid $win.filters.statusL -row 0 -column 0 -padx 3 -pady 2
+    grid $win.filters.status -row 0 -column 1 -padx 3 -pady 2
+    grid $win.filters.codeL -row 0 -column 2 -padx 3 -pady 2
+    grid $win.filters.code -row 0 -column 3 -padx 3 -pady 2
+    grid $win.filters.apply -row 0 -column 4 -padx 3 -pady 2
+    grid columnconfigure $win.filters 1 -weight 1
+    grid $win.filters -row 0 -column 0 -columnspan 2 -sticky we
+
+    ttk::frame $win.actions -padding 4
+    ttk::button $win.actions.play -text "Přehrát" -command [list ::qemu::startLogPlayback $win.text]
+    ttk::button $win.actions.stop -text "Stop" -command ::qemu::stopLogPlayback
+    ttk::button $win.actions.clear -text "Clear" -command [list ::qemu::clearLogs $win.text]
+    ttk::button $win.actions.close -text "Zavřít" -command [list destroy $win]
+    grid $win.actions.play -row 0 -column 0 -padx 3 -pady 2
+    grid $win.actions.stop -row 0 -column 1 -padx 3 -pady 2
+    grid $win.actions.clear -row 0 -column 2 -padx 3 -pady 2
+    grid $win.actions.close -row 0 -column 3 -padx 3 -pady 2
+    grid $win.actions -row 1 -column 0 -columnspan 2 -sticky we
+
+    text $win.text -wrap word -width 100 -height 20 -state disabled -yscrollcommand "$win.scroll set"
+    ttk::scrollbar $win.scroll -orient vertical -command "$win.text yview"
+    grid $win.text -row 2 -column 0 -sticky news
+    grid $win.scroll -row 2 -column 1 -sticky ns
+    grid rowconfigure $win 2 -weight 1
+    grid columnconfigure $win 0 -weight 1
+
+    bind $win.filters.status <<ComboboxSelected>> [list ::qemu::renderLogs $win.text]
+    bind $win.filters.code <KeyRelease> [list ::qemu::renderLogs $win.text]
+
+    set logViewerText $win.text
+    ::qemu::renderLogs $win.text
+}
+
 proc ::qemu::openSettingsDialog {} {
     variable qemuPathOverrides
     set win [toplevel .settings]
@@ -643,9 +802,10 @@ proc ::qemu::mainUi {} {
         set vm [::qemu::getVmById [lindex $sel 0]]
         ::qemu::showCommand $vm
     }
+    ttk::button .main.toolbar.logs -text "Logy" -command ::qemu::openLogViewer
     ttk::button .main.toolbar.settings -text "Nastavení QEMU cest" -command ::qemu::openSettingsDialog
     pack .main.toolbar.new .main.toolbar.edit .main.toolbar.del \
-        .main.toolbar.start .main.toolbar.cmd .main.toolbar.settings \
+        .main.toolbar.start .main.toolbar.cmd .main.toolbar.logs .main.toolbar.settings \
         -side left -padx 3
     pack .main.toolbar -fill x -pady 4
 
