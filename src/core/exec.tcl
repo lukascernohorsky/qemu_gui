@@ -10,12 +10,24 @@ namespace eval ::virt::exec {
         set dryRun [dict get $options -dryRun 0]
         set timeout [dict get $options -timeout $::virt::exec::defaultTimeout]
         set envVars [dict get $options -env {}]
-        set result [dict create argv $argv timeout $timeout]
+        set result [dict create argv $argv timeout $timeout env $envVars]
         if {$dryRun} {
             dict set result status "dry-run"
             return $result
         }
-        set chan [open |[list {*}$argv] r+]
+        # Apply environment variables if provided.
+        if {[dict size $envVars] > 0} {
+            set savedEnv {}
+            foreach {k v} $envVars {
+                if {[info exists ::env($k)]} {
+                    lappend savedEnv $k $::env($k)
+                }
+                set ::env($k) $v
+            }
+        } else {
+            set savedEnv {}
+        }
+        set chan [open |[list {*}$argv] r]
         fconfigure $chan -blocking 0
         set out ""
         set err ""
@@ -34,6 +46,12 @@ namespace eval ::virt::exec {
         dict set result status [expr {$status ? "error" : "ok"}]
         dict set result stdout $out
         if {$status} { dict set result error $res }
+        # Restore environment
+        if {[info exists savedEnv]} {
+            foreach {k v} $savedEnv {
+                set ::env($k) $v
+            }
+        }
         return $result
     }
 }

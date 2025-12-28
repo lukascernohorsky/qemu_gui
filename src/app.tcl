@@ -9,6 +9,8 @@ lappend auto_path $::virt::ROOT
 source [file join $::virt::ROOT core/logger.tcl]
 source [file join $::virt::ROOT core/exec.tcl]
 source [file join $::virt::ROOT core/plugin_loader.tcl]
+source [file join $::virt::ROOT core/commands.tcl]
+source [file join $::virt::ROOT core/jobs.tcl]
 
 namespace eval ::virt {
     variable appVersion "0.2.0"
@@ -17,6 +19,7 @@ namespace eval ::virt {
 namespace eval ::virt::state {
     variable drivers {}
     variable connections {}
+    variable preferences [dict create terminal_template "xterm -e {cmd}" dry_run 1]
 }
 
 proc ::virt::theme::select {} {
@@ -151,6 +154,7 @@ proc ::virt::ui::renderDetails {} {
         } elseif {$kind eq "guest"} {
             $txt insert end "Guest: [$tree item $id -text]\n"
             $txt insert end "Arch: [$tree set $id detail]\n"
+            $txt insert end "Actions: [join [::virt::ui::guestActions $id] \", \"]\n"
         } else {
             $txt insert end [$tree item $id -text]
         }
@@ -161,10 +165,92 @@ proc ::virt::ui::renderDetails {} {
 proc ::virt::ui::handleAction {action} {
     ::virt::logger::log info "Action $action triggered"
     if {$action eq "refresh"} { ::virt::ui::populateTree }
+    if {$action eq "start"} { ::virt::ui::runGuestAction mock.start }
+    if {$action eq "stop"} { ::virt::ui::runGuestAction mock.stop }
+    if {$action eq "force"} { ::virt::ui::runGuestAction mock.force }
+    if {$action eq "delete"} { ::virt::ui::runGuestAction mock.delete }
+    if {$action eq "prefs"} { ::virt::ui::openPrefs }
+    if {$action eq "ssh"} { ::virt::ui::openSshTemplate }
 }
 
+proc ::virt::ui::guestActions {guestId} {
+    set connNode [lindex [.container.tree parent $guestId] 0]
+    set conn [lsearch -regexp -inline $::virt::state::connections [list .*]]
+    foreach c $::virt::state::connections {
+        if {[dict get $c id] eq $connNode} {
+            set drv [dict get $c driver]
+            set acts [$drv guest_actions $guestId]
+            set labels {}
+            foreach act $acts { lappend labels [dict get $act label] }
+            return $labels
+        }
+    }
+    return {}
+}
+
+proc ::virt::ui::runGuestAction {commandId} {
+    set sel [.container.tree selection]
+    if {$sel eq ""} { return }
+    set guestId [lindex $sel 0]
+    set connNode [.container.tree parent $guestId]
+    foreach c $::virt::state::connections {
+        if {[dict get $c id] eq $connNode} {
+            set drv [dict get $c driver]
+            set cmdId [$drv command_for_action $commandId $guestId]
+            set res [::virt::jobs::runCommand $cmdId {}]
+            ::virt::ui::appendLog $res
+            ::virt::ui::renderDetails
+            return
+        }
+    }
+}
+
+proc ::virt::ui::appendLog {result} {
+    set txt .container.detail.nb.logs.text
+    $txt configure -state normal
+    $txt insert end "[clock format [clock seconds] -format \"%Y-%m-%d %H:%M:%S\"] :: [dict get $result command-id] :: status=[dict get $result status] dry-run=[dict get $result dry-run]\n"
+    if {[dict exists $result stdout]} {
+        $txt insert end "stdout: [dict get $result stdout]\n"
+    }
+    if {[dict exists $result error]} {
+        $txt insert end "error: [dict get $result error]\n"
+    }
+    $txt insert end "\n"
+    $txt see end
+    $txt configure -state disabled
+}
+
+proc ::virt::ui::openPrefs {} {
+    variable ::virt::state::preferences
+    set win [toplevel .prefs]
+    wm title $win "Preferences"
+    ttk::label $win.l1 -text "Terminal command template (use {cmd} placeholder)"
+    ttk::entry $win.e1 -textvariable ::virt::state::preferences(terminal_template)
+    ttk::checkbutton $win.cb -text "Dry-run mode (do not execute commands)" -variable ::virt::state::preferences(dry_run)
+    ttk::button $win.ok -text "Save" -command [list ::virt::ui::applyPrefs $win]
+    grid $win.l1 -row 0 -column 0 -sticky w -padx 4 -pady 4
+    grid $win.e1 -row 1 -column 0 -sticky we -padx 4 -pady 2
+    grid $win.cb -row 2 -column 0 -sticky w -padx 4 -pady 2
+    grid $win.ok -row 3 -column 0 -sticky e -padx 4 -pady 6
+    grid columnconfigure $win 0 -weight 1
+}
+
+proc ::virt::ui::applyPrefs {win} {
+    variable ::virt::state::preferences
+    ::virt::jobs::setDryRun $::virt::state::preferences(dry_run)
+    destroy $win
+}
+
+proc ::virt::ui::openSshTemplate {} {
+    variable ::virt::state::preferences
+    set template [dict get $::virt::state::preferences terminal_template]
+    tk_messageBox -icon info -type ok -title "SSH Command Template" -message "Template: $template\n\nSSH execution is planned; this is a placeholder."
+}
+
+::virt::commands::init
 ::virt::loadDrivers
 ::virt::state::buildConnections
+::virt::jobs::setDryRun [dict get $::virt::state::preferences dry_run]
 ::virt::ui::build
 
 bind . <Control-q> exit

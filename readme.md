@@ -9,6 +9,7 @@ Tento dokument shrnuje klíčové spouštěcí parametry QEMU pro architektury x
 - **Drivery** (`src/drivers/mock`): manifest + TclOO třída `Driver` se statickou inventurou pro deterministické demo/CI.
 - **Dokumentace**: kostry v `docs/` (architektura, backends, command-mapping, security, packaging, troubleshooting, dev-setup).
 - **Balíčky**: šablony pro deb/rpm/arch/gentoo/FreeBSD/NetBSD/OpenBSD v `packaging/`.
+ - **Jobs/Commands**: základní registr příkazů a běh úloh (`src/core/commands.tcl`, `src/core/jobs.tcl`) s podporou dry-run, napojený na mock akce start/stop/force/delete.
 
 ## Klíčové parametry QEMU (x86/ARM)
 
@@ -87,8 +88,8 @@ Tento dokument shrnuje klíčové spouštěcí parametry QEMU pro architektury x
 V kořenovém adresáři repo je přiložený prototyp `qemu_gui.tcl`, který pokrývá základ návrhu:
 
 1. Spusťte Tcl/Tk (vyžaduje `tclsh` 8.6+ s Tk): `tclsh qemu_gui.tcl` (wrapper načte `src/app.tcl`).
-2. Po startu se načte mock driver a strom připojení/VM zobrazí dvě vzorové VM. Toolbar obsahuje akce New/Start/Stop/Force/Delete/Open Console/Open SSH Terminal/Refresh/Preferences (nyní logují události a refreshují strom).
-3. Detailní panel zobrazuje přehled vybrané položky, záložka Logs slouží pro budoucí výstup operací.
+2. Po startu se načte mock driver a strom připojení/VM zobrazí dvě vzorové VM. Toolbar akce Start/Stop/Force/Delete spouští joby přes command registry (výchozí dry-run lze vypnout v Preferences); logy se zapisují do záložky Logs.
+3. Detailní panel zobrazuje přehled vybrané položky, záložka Logs zobrazuje historii jobů (status, stdout, případné chyby).
 4. Volba tématu probíhá automaticky dle platformy (Win: vista/xpnative, macOS: aqua, Unix: yaru/arc/clam fallback), scaling lze nastavit proměnnou prostředí `TK_SCALE`.
 
 Původní návrh formulářů/parametrů VM zůstává referenční pro další iterace: příkazová řádka QEMU se má generovat z konfigurace ( `-machine`, `-accel`, `-cpu`, `-smp`, `-m`, `-boot`, `-bios`/firmware, `-vga`, `-display`, `-snapshot`, `-drive` pro každé zařízení, `-cdrom` pokud je ISO, `-nic` pro každou síť a dodatečné parametry). 

@@ -7,11 +7,11 @@
    ```
 3. Modules live under `src/`:
    - UI entrypoint: `src/app.tcl`
-   - Core helpers: `src/core/*.tcl`
+   - Core helpers: `src/core/*.tcl` (logger, exec, command registry, jobs, plugin loader)
    - Drivers: `src/drivers/<name>/manifest.json` + `driver.tcl`
 4. Add a new driver:
    - Create `src/drivers/<id>/manifest.json` with metadata and class name.
-   - Implement a TclOO class exposing `detect`, `capabilities`, `inventory`, `guest_actions`, `console_info`.
+   - Implement a TclOO class exposing `detect`, `capabilities`, `inventory`, `guest_actions`, `console_info`, `command_for_action`.
    - Ensure deterministic outputs for CI and add tcltest cases (planned under `tests/`).
 5. Packaging:
    - Use templates under `packaging/`; update version and checksum fields before builds.

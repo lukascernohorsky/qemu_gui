@@ -6,7 +6,8 @@
 - Dry-run returns structured argv without execution.
 
 ## Mock Driver
-- No external commands; returns deterministic data.
+- Command ids: `mock.start`, `mock.stop`, `mock.force`, `mock.delete`.
+- Each command maps to a trivial argv (echo placeholder) with dry-run supported through the job runner.
 
 ## Planned Command Registry Examples
 - `qemu.start`: argv builder from VM definition -> `qemu-system-<arch> ...`, timeout 120s, dry-run supported, privilege optional (pkexec/sudo fallback).
