@@ -84,7 +84,7 @@ proc ::virt::ui::build {} {
 
     ttk::frame .container.toolbar
     foreach {key label} {
-        new "New" start "Start" stop "Stop" force "Force" delete "Delete" console "Open Console" ssh "Open SSH Terminal" refresh "Refresh" prefs "Preferences" savelogs "Save Logs" diag "Export Diagnostics"
+        new "New" start "Start" stop "Stop" force "Force" delete "Delete" console "Open Console" ssh "Open SSH Terminal" refresh "Refresh" prefs "Preferences" savelogs "Save Logs" clearlogs "Clear Logs" diag "Export Diagnostics"
     } {
         ttk::button .container.toolbar.$key -text $label -command [list ::virt::ui::handleAction $key]
         pack .container.toolbar.$key -side left -padx 2 -pady 2
@@ -159,6 +159,14 @@ proc ::virt::ui::renderDetails {} {
         set kind [$tree set $id type]
         if {$kind eq "connection"} {
             $txt insert end "Connection: [$tree item $id -text]\n"
+            set drv [::virt::ui::driverForConnection $id]
+            if {$drv ne ""} {
+                set inv [$drv inventory]
+                set guestCount [llength [dict get $inv guests]]
+                set storageCount [llength [dict get $inv storage]]
+                set netCount [llength [dict get $inv networks]]
+                $txt insert end "Driver: [$drv name]\nGuests: $guestCount\nStorage: $storageCount\nNetworks: $netCount\n"
+            }
         } elseif {$kind eq "guest"} {
             $txt insert end "Guest: [$tree item $id -text]\n"
             $txt insert end "Arch: [$tree set $id detail]\n"
@@ -209,6 +217,15 @@ proc ::virt::ui::selectInitialNode {} {
     }
 }
 
+proc ::virt::ui::driverForConnection {connId} {
+    foreach c $::virt::state::connections {
+        if {[dict get $c id] eq $connId} {
+            return [dict get $c driver]
+        }
+    }
+    return ""
+}
+
 proc ::virt::ui::handleAction {action} {
     ::virt::logger::log info "Action $action triggered"
     if {$action eq "refresh"} { ::virt::ui::populateTree }
@@ -220,6 +237,7 @@ proc ::virt::ui::handleAction {action} {
     if {$action eq "prefs"} { ::virt::ui::openPrefs }
     if {$action eq "ssh"} { ::virt::ui::openSshTemplate }
     if {$action eq "savelogs"} { ::virt::ui::saveLogs }
+    if {$action eq "clearlogs"} { ::virt::ui::clearLogs }
     if {$action eq "diag"} { ::virt::ui::exportDiagnostics }
 }
 
@@ -366,6 +384,18 @@ proc ::virt::ui::setStatus {msg} {
     if {[winfo exists .container.status]} {
         .container.status configure -text $msg
     }
+}
+
+proc ::virt::ui::clearLogs {} {
+    set logs .container.detail.nb.logs.text
+    set history .container.detail.nb.history.text
+    foreach t [list $logs $history] {
+        $t configure -state normal
+        $t delete 1.0 end
+        $t configure -state disabled
+    }
+    ::virt::jobs::clear
+    ::virt::ui::setStatus "Logs cleared"
 }
 
 ::virt::commands::init

@@ -40,4 +40,9 @@ namespace eval ::virt::jobs {
         variable history
         return $history
     }
+
+    proc clear {} {
+        variable history
+        set history {}
+    }
 }
