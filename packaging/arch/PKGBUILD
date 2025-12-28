@@ -1,0 +1,17 @@
+pkgname=virt-tk-manager
+pkgver=0.2.0
+pkgrel=1
+pkgdesc="Tcl/Tk multi-backend virtualization manager"
+arch=('any')
+url="https://example.test/virt-tk-manager"
+license=('MIT')
+depends=('tcl>=8.6' 'tk' 'tcllib' 'tcltls' 'openssh')
+source=("${pkgname}-${pkgver}.tar.gz")
+sha256sums=('SKIP')
+
+package() {
+  cd "${srcdir}/${pkgname}-${pkgver}"
+  install -d "${pkgdir}/usr/share/virt-tk-manager" "${pkgdir}/usr/bin"
+  cp -a src "${pkgdir}/usr/share/virt-tk-manager/"
+  install -m755 qemu_gui.tcl "${pkgdir}/usr/bin/virt-tk-manager"
+}

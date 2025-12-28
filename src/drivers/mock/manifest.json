@@ -1,0 +1,15 @@
+{
+  "id": "mock",
+  "name": "Mock backend",
+  "entrypoint": "driver.tcl",
+  "class": "::virt::drivers::mock::Driver",
+  "os_support": ["linux", "freebsd", "netbsd", "openbsd", "macos"],
+  "binaries": [],
+  "devices": [],
+  "services": [],
+  "capabilities_keys": ["guests", "storage", "networks", "consoles"],
+  "priority": 0,
+  "supports_import": true,
+  "supports_templates": true,
+  "supported_install_media": ["iso", "img", "qcow2"]
+}

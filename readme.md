@@ -2,6 +2,15 @@
 
 Tento dokument shrnuje klíčové spouštěcí parametry QEMU pro architektury x86 (i386/x86_64) a ARM (armv7/aarch64) a navrhuje desktopovou aplikaci v Tcl/Tk, která tyto možnosti zpřístupní přes grafické rozhraní napříč platformami (Linux, Windows, FreeBSD, NetBSD).
 
+## Struktura repozitáře a MVP kostra
+- **Entrypoint**: `qemu_gui.tcl` pouze načítá `src/app.tcl`.
+- **UI** (`src/app.tcl`): ttk-first hlavní okno s toolbar, stromem připojení/VM a detailem (Summary/Logs), automatická volba tématu dle platformy a volitelný scaling přes `TK_SCALE`.
+- **Core** (`src/core`): jednoduchý logger, exec wrapper (argv-first, dry-run), loader manifestů pluginů.
+- **Drivery** (`src/drivers/mock`): manifest + TclOO třída `Driver` se statickou inventurou pro deterministické demo/CI.
+- **Dokumentace**: kostry v `docs/` (architektura, backends, command-mapping, security, packaging, troubleshooting, dev-setup).
+- **Balíčky**: šablony pro deb/rpm/arch/gentoo/FreeBSD/NetBSD/OpenBSD v `packaging/`.
+ - **Jobs/Commands**: základní registr příkazů a běh úloh (`src/core/commands.tcl`, `src/core/jobs.tcl`) s podporou dry-run (per-command), napojený na mock akce start/stop/force/delete/console.
+
 ## Klíčové parametry QEMU (x86/ARM)
 
 ### Základní konfigurace VM
@@ -78,13 +87,54 @@ Tento dokument shrnuje klíčové spouštěcí parametry QEMU pro architektury x
 
 V kořenovém adresáři repo je přiložený prototyp `qemu_gui.tcl`, který pokrývá základ návrhu:
 
-1. Spusťte Tcl/Tk (vyžaduje `tclsh` 8.6+ s Tk): `tclsh qemu_gui.tcl`.
-2. Hlavní okno zobrazuje seznam VM definovaných v adresáři `./vms` (vytváří se automaticky, konfigurace se ukládají jako `*.tcl`).
-3. Tlačítko **Nový** / **Upravit** otevře formulář s poli pro název, architekturu, machine typ, RAM/CPU, akceleraci, firmware, boot order, ISO, grafiku, snapshot režim, dodatečné parametry a seznamy disků a sítí:
-   - Disky: tlačítko **Přidat** otevře dialog s volbou cesty, formátu, rozhraní (ide/virtio/scsi…), média (disk/cdrom), boot flag a readonly. Více zařízení je možné přidávat/mazat.
-   - Síť: dialog umožňuje nastavit režim (user/bridge/tap/none), model karty, hostfwd, bridge/tap jméno a MAC adresu.
-4. Uložené VM lze **Smazat**, zobrazit **Vygenerovaný příkaz** nebo spustit tlačítkem **Start** (zobrazí se potvrzení a poté se pokusí spustit QEMU).
-5. **Nastavení QEMU cest** umožní přepsat binárky `qemu-system-*` pro jednotlivé architektury (např. na Windows nebo BSD instalacích).
-6. Rozložení je inspirováno virt-managerem: horní lišta s akcemi (Nový, Upravit, Smazat, Start, Příkaz, Nastavení), hlavní stromový seznam VM s klíčovými sloupci (architektura, CPU, RAM, akcelerace, display) a spodní panel s textovými detaily a generovaným příkazem pro vybraný VM.
+1. Spusťte Tcl/Tk (vyžaduje `tclsh` 8.6+ s Tk): `tclsh qemu_gui.tcl` (wrapper načte `src/app.tcl`).
+2. Po startu se načte mock driver a strom připojení/VM zobrazí dvě vzorové VM. Toolbar akce Start/Stop/Force/Delete spouští joby přes command registry (výchozí dry-run lze vypnout v Preferences); Console zobrazí hint (host/port/command); logy se zapisují do záložky Logs, historie do History, lze je uložit tlačítkem Save Logs, vymazat Clear Logs a exportovat diagnostiku do JSON (Export Diagnostics).
+3. Detailní panel zobrazuje přehled vybrané položky, záložky Logs/History zobrazují průběh jobů (status, stdout, privilege, případné chyby) a export diagnostiky zahrnuje tyto informace plus přehled driverů/připojení. Stavový řádek ukazuje aktuální výběr a poslední akce.
+4. Volba tématu probíhá automaticky dle platformy (Win: vista/xpnative, macOS: aqua, Unix: yaru/arc/clam fallback), scaling lze nastavit proměnnou prostředí `TK_SCALE`.
 
-Příkazová řádka QEMU se generuje z konfigurace: zahrnuje `-machine`, `-accel`, `-cpu`, `-smp`, `-m`, `-boot`, `-bios`/firmware, `-vga`, `-display`, `-snapshot`, `-drive` pro každé zařízení, `-cdrom` (pokud je ISO), `-nic` pro každou síť a libovolné dodatečné parametry. 
+Původní návrh formulářů/parametrů VM zůstává referenční pro další iterace: příkazová řádka QEMU se má generovat z konfigurace ( `-machine`, `-accel`, `-cpu`, `-smp`, `-m`, `-boot`, `-bios`/firmware, `-vga`, `-display`, `-snapshot`, `-drive` pro každé zařízení, `-cdrom` pokud je ISO, `-nic` pro každou síť a dodatečné parametry). 
+
+## Spuštění a práce s Dockerem
+
+Pro snadné vyzkoušení nebo oddělení závislostí lze GUI i QEMU spustit v kontejneru. Základní kroky:
+
+1. **Build image** (příklad pro Debian/Ubuntu base s Tcl/Tk a QEMU):
+
+   ```Dockerfile
+   FROM debian:stable-slim
+   RUN apt-get update && apt-get install -y \
+       tcl tk qemu-system-x86 qemu-utils openssh-client && \
+       apt-get clean && rm -rf /var/lib/apt/lists/*
+   WORKDIR /opt/virt-tk
+   COPY . /opt/virt-tk
+   CMD ["tclsh", "/opt/virt-tk/qemu_gui.tcl"]
+   ```
+
+2. **Spuštění s přístupem k akceleraci a displeji**:
+
+   ```bash
+   docker run --rm -it \
+     --device /dev/kvm \
+     -e DISPLAY=$DISPLAY \
+     -v /tmp/.X11-unix:/tmp/.X11-unix \
+     -v "$HOME/.Xauthority:/root/.Xauthority:ro" \
+     -v "$PWD/vms:/opt/virt-tk/vms" \
+     --name virt-tk-gui \
+     virt-tk-manager:local
+   ```
+
+   - `--device /dev/kvm` je volitelné, pokud chcete KVM; bez něj poběží QEMU bez akcelerace.
+   - Pro Wayland/pipewire kompozitory použijte ekvivalentní přístup (např. `XDG_RUNTIME_DIR` a `wayland-0`).
+   - Mapování `vms` adresáře zachová konfigurace a obrazy mezi běhy kontejneru.
+
+3. **Síť a rozhraní**:
+   - Pro bridged nebo TAP režimy je třeba předat příslušná rozhraní (`--network host` nebo `--cap-add NET_ADMIN` + `--device /dev/net/tun`).
+   - U přesměrování portů z `-nic user,hostfwd` obvykle vystačí implicitní NAT Dockeru; pro VNC/SPICE se často hodí `--network host`.
+
+4. **Bezpečnostní poznámky**:
+   - Přístup k `/dev/kvm` a síťovým schopnostem zvyšuje privilegia kontejneru; používejte jen na důvěryhodných hostech.
+   - Pokud potřebujete přístup k lokálnímu úložišti ISO/disků, přidejte odpovídající `-v` bind mounty.
+
+5. **Debug a logy**:
+   - Výstup `tclsh qemu_gui.tcl` jde do stdout/stderr kontejneru; pro per-VM logy zachovejte perzistentní bind mount do `vms/`.
+   - Pro nenativní GUI (headless host) lze místo X11 použít VNC/SPICE z QEMU nebo předat Xvfb/XPRA podle potřeby.

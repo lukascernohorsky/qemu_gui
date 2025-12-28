@@ -1,0 +1,14 @@
+Source: virt-tk-manager
+Section: utils
+Priority: optional
+Maintainer: virt-tk-manager Team <maintainers@example.test>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.6.2
+Homepage: https://example.test/virt-tk-manager
+
+Package: virt-tk-manager
+Architecture: all
+Depends: ${misc:Depends}, tcl (>= 8.6), tk, tcllib, tcl-tls, openssh-client
+Description: Tcl/Tk multi-backend virtualization manager (virt-manager-like)
+ This package ships the virt-tk-manager GUI and mock backend. Hypervisor
+ tools such as QEMU/LXC/Xen are optional runtime dependencies.
