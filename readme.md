@@ -88,3 +88,16 @@ V kořenovém adresáři repo je přiložený prototyp `qemu_gui.tcl`, který po
 6. Rozložení je inspirováno virt-managerem: horní lišta s akcemi (Nový, Upravit, Smazat, Start, Příkaz, Nastavení), hlavní stromový seznam VM s klíčovými sloupci (architektura, CPU, RAM, akcelerace, display) a spodní panel s textovými detaily a generovaným příkazem pro vybraný VM.
 
 Příkazová řádka QEMU se generuje z konfigurace: zahrnuje `-machine`, `-accel`, `-cpu`, `-smp`, `-m`, `-boot`, `-bios`/firmware, `-vga`, `-display`, `-snapshot`, `-drive` pro každé zařízení, `-cdrom` (pokud je ISO), `-nic` pro každou síť a libovolné dodatečné parametry. 
+
+## Testy a pomocné skripty
+
+V adresáři `lib/` je pomocná Tcl knihovna `qemu_utils.tcl`, která obsahuje lehkou logiku pro práci s frontou úloh, generování diagnostického JSONu a validaci manifestu bez nutnosti načítat Tk. Odpovídající testy jsou v `tests/*.test` a lze je spustit příkazem:
+
+```
+tclsh tests/all_tests.tcl
+```
+
+Testy pokrývají:
+- detekci selhání úlohy (nenulový exit code) a reset fronty po `stop`,
+- ověření, že diagnostický JSON obsahuje `topics/scale` a citlivá pole `hostfwd`/`mac` jsou redigována,
+- validaci konkrétních hodnot constraintů z manifestu s fallback regex parserem, pokud není k dispozici JSON knihovna.

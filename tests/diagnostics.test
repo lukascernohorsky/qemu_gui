@@ -1,0 +1,26 @@
+package require tcltest
+namespace import ::tcltest::test
+
+set root [file normalize [file join [file dirname [info script]] ".."]]
+source [file join $root "lib" "qemu_utils.tcl"]
+
+set cfg [dict create \
+    net [list [dict create \
+        type "user" \
+        model "virtio-net-pci" \
+        hostfwd "tcp::2222-:22" \
+        br "" \
+        tap "" \
+        mac "52:54:00:12:34:56" \
+    ]] \
+]
+
+test diagnostics_contains_topics_and_scale {diagnostic JSON includes topics and scale} -body {
+    set payload [::qemu::diagnostics::report $cfg {vm network} instance]
+    list [regexp {"topics":\s*\[} $payload] [regexp {"scale":"instance"} $payload]
+} -result {1 1}
+
+test diagnostics_redacts_hostfwd_and_mac {hostfwd and MAC are redacted in JSON} -body {
+    set payload [::qemu::diagnostics::report $cfg {vm} instance]
+    list [regexp {"hostfwd":"\*\*\*"} $payload] [regexp {"mac":"\*\*\*"} $payload]
+} -result {1 1}

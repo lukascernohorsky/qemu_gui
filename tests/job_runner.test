@@ -1,0 +1,26 @@
+package require tcltest
+namespace import ::tcltest::test
+
+set root [file normalize [file join [file dirname [info script]] ".."]]
+source [file join $root "lib" "qemu_utils.tcl"]
+
+set runner [::qemu::jobs::create]
+
+test job_runner_failed_job_returns_exit_code {failed job captures non-zero exit code} -body {
+    ::qemu::jobs::enqueue runner {sh -c "exit 7"}
+    set result [::qemu::jobs::runNext runner]
+    list [dict get $result status] [dict get $result exitCode]
+} -result {failure 7}
+
+test job_runner_stop_clears_state_and_queue {stop resets queue and state} -body {
+    ::qemu::jobs::enqueue runner {sh -c "exit 0"}
+    dict set runner state running
+    ::qemu::jobs::stop runner
+    list [dict get $runner state] [dict get $runner queue]
+} -result {idle {}}
+
+test job_runner_successful_job_recorded {successful job returns success status} -body {
+    ::qemu::jobs::enqueue runner {echo ok}
+    set result [::qemu::jobs::runNext runner]
+    dict get $result status
+} -result success
