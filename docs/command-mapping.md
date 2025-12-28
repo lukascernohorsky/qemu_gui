@@ -7,7 +7,7 @@
 
 ## Mock Driver
 - Command ids: `mock.start`, `mock.stop`, `mock.force`, `mock.delete`, `mock.console`.
-- Each command maps to a trivial argv (echo placeholder) with `supports_dry_run` set per command (console is view-only and executes even when dry-run is on).
+- Each command maps to a trivial argv (echo placeholder) with `supports_dry_run` set per command (console is view-only and executes even when dry-run is on). Console action is exposed via `command_for_action`.
 
 ## Planned Command Registry Examples
 - `qemu.start`: argv builder from VM definition -> `qemu-system-<arch> ...`, timeout 120s, dry-run supported, privilege optional (pkexec/sudo fallback).

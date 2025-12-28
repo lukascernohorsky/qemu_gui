@@ -54,6 +54,7 @@ oo::class create ::virt::drivers::mock::Driver {
             mock.stop { return mock.stop }
             mock.force { return mock.force }
             mock.delete { return mock.delete }
+            mock.console { return mock.console }
             default { error "Unsupported action $actionId" }
         }
     }

@@ -110,7 +110,11 @@ proc ::virt::ui::build {} {
     ttk::frame $nb.logs
     text $nb.logs.text -height 8 -wrap word -state disabled
     pack $nb.logs.text -fill both -expand 1
+    ttk::frame $nb.history
+    text $nb.history.text -height 8 -wrap word -state disabled
+    pack $nb.history.text -fill both -expand 1
     $nb add $nb.logs -text "Logs"
+    $nb add $nb.history -text "History"
     pack $nb -fill both -expand 1
     .container.pw add .container.detail -weight 2
 
@@ -239,6 +243,7 @@ proc ::virt::ui::appendLog {result} {
     $txt insert end "\n"
     $txt see end
     $txt configure -state disabled
+    ::virt::ui::renderHistory
 }
 
 proc ::virt::ui::openPrefs {} {
@@ -277,6 +282,18 @@ proc ::virt::ui::saveLogs {} {
     puts $fh $content
     close $fh
     tk_messageBox -icon info -type ok -title "Logs saved" -message "Logs saved to $path"
+}
+
+proc ::virt::ui::renderHistory {} {
+    set txt .container.detail.nb.history.text
+    $txt configure -state normal
+    $txt delete 1.0 end
+    foreach entry [::virt::jobs::recent] {
+        set ts [dict get $entry ts]
+        set res [dict get $entry result]
+        $txt insert end "[clock format $ts -format \"%Y-%m-%d %H:%M:%S\"] :: [dict get $res command-id] :: status=[dict get $res status] dry-run=[dict get $res dry-run]\n"
+    }
+    $txt configure -state disabled
 }
 
 ::virt::commands::init

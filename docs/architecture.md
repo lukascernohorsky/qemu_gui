@@ -3,7 +3,7 @@
 This repository scaffolds a Tcl/Tk application named **virt-tk-manager** that follows a virt-manager-like UX while keeping a plugin-based backend model.
 
 ## Layers
-- **UI layer (`src/app.tcl`)**: ttk-first layout with toolbar, tree/detail panes, notebooks for summary/logs. Theme selection favors native look per platform. Toolbar actions are wired to job execution (currently against the mock backend).
+- **UI layer (`src/app.tcl`)**: ttk-first layout with toolbar, tree/detail panes, notebooks for summary/logs/history. Theme selection favors native look per platform. Toolbar actions are wired to job execution (currently against the mock backend).
 - **Core modules (`src/core`)**:
   - `logger.tcl`: lightweight logger with leveled output and optional file target.
   - `exec.tcl`: argv-first command runner with dry-run support, timeout, and temporary env overrides.
@@ -24,7 +24,7 @@ This repository scaffolds a Tcl/Tk application named **virt-tk-manager** that fo
 ## UI Model
 - **Connections**: derived from loaded drivers; each driver maps to a local connection (placeholder until SSH transport is added).
 - **Objects**: guests, storage pools, and networks rendered in a tree. Detail panel shows summary and logs.
-- **Actions**: toolbar buttons call `runGuestAction` which resolves driver action -> command-id -> job run (dry-run toggle in Preferences). Console action shows viewer hints; Logs tab shows recent command outcomes and can be saved to a file.
+- **Actions**: toolbar buttons call `runGuestAction` which resolves driver action -> command-id -> job run (dry-run toggle in Preferences). Console action shows viewer hints; Logs tab shows recent command outcomes, History tab shows persisted job records, and logs can be saved to a file.
 
 ## Job/Task and Operations Queue (planned)
 - Future modules will add a job controller for async operations, per the acceptance criteria (dry-run, rollback hooks, diagnostics bundle). Current scaffold logs intent only.
