@@ -141,7 +141,7 @@ proc ::virt::ui::populateTree {} {
             $tree insert $node end -id $gid -text $text -values [list guest [dict get $guest arch]]
         }
     }
-    $tree selection set [$tree get_children {}]
+    ::virt::ui::selectInitialNode
     ::virt::ui::updateToolbarState
 }
 
@@ -186,6 +186,26 @@ proc ::virt::ui::updateToolbarState {} {
                 .container.toolbar.$btn state disabled
             }
         }
+    }
+}
+
+proc ::virt::ui::selectInitialNode {} {
+    set tree .container.tree
+    set firstGuest ""
+    foreach conn [$tree children {}] {
+        foreach child [$tree children $conn] {
+            if {[.container.tree set $child type] eq "guest"} {
+                set firstGuest $child
+                break
+            }
+        }
+        if {$firstGuest ne ""} { break }
+    }
+    if {$firstGuest ne ""} {
+        $tree selection set $firstGuest
+    } else {
+        set roots [$tree children {}]
+        if {$roots ne ""} { $tree selection set [lindex $roots 0] }
     }
 }
 
